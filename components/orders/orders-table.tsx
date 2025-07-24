@@ -17,14 +17,14 @@ const statusColors: Record<OrderStatus, string> = {
 }
 
 interface OrderItem {
-    product_id: string; 
+    product_id: string;
     product_name: string;
     product_price: number;
     quantity: number;
 }
 
 interface Order {
-    id: number; 
+    id: number;
     customer_name: string;
     customer_phone: string;
     address: string | null;
@@ -51,7 +51,7 @@ export function OrdersTable() {
                 .from('orders')
                 .select('*')
                 .order('created_at', { ascending: false })
-                .limit(5); 
+                .limit(5);
 
             if (ordersError) {
                 console.error("Erro ao buscar pedidos recentes:", ordersError);
@@ -114,7 +114,7 @@ export function OrdersTable() {
                 { event: '*', schema: 'public', table: 'orders' },
                 (payload) => {
                     console.log('Mudança em pedidos recentes em tempo real!', payload);
-                    fetchRecentOrders(); 
+                    fetchRecentOrders();
                 }
             )
             .subscribe();
@@ -126,7 +126,7 @@ export function OrdersTable() {
                 { event: '*', schema: 'public', table: 'order_items' },
                 (payload) => {
                     console.log('Mudança em itens de pedidos recentes em tempo real!', payload);
-                    fetchRecentOrders(); 
+                    fetchRecentOrders();
                 }
             )
             .subscribe();
@@ -140,7 +140,7 @@ export function OrdersTable() {
     const filteredOrders = orders.filter(
         (order) =>
             order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            order.id.toString().includes(searchTerm) || 
+            order.id.toString().includes(searchTerm) ||
             order.customer_phone.includes(searchTerm),
     );
 
@@ -149,41 +149,39 @@ export function OrdersTable() {
     };
 
     const formatOrderId = (id: number) => {
-        return `PED-${id.toString().padStart(4, '0')}`; 
+        return `PED-${id.toString().padStart(4, '0')}`;
     };
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mb-4">
                 <div className="flex items-center gap-2">
                     <h2 className="text-xl font-semibold">Pedidos Recentes</h2>
                     <Badge variant="outline" className="ml-2">
                         {orders.length} total
                     </Badge>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            type="search"
-                            placeholder="Buscar pedidos..."
-                            className="pl-8 w-[250px]"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
+                <div className="relative w-full sm:w-auto">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        type="search"
+                        placeholder="Buscar pedidos..."
+                        className="pl-8 w-full sm:w-[250px]"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
                 </div>
             </div>
-            <div className="rounded-md border">
-                <Table>
+            <div className="rounded-md border overflow-x-auto">
+                <Table className="min-w-full">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-[100px]">Pedido</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Telefone</TableHead>
-                            <TableHead>Itens</TableHead>
-                            <TableHead>Total</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead className="w-[100px] min-w-[100px]">Pedido</TableHead>
+                            <TableHead className="min-w-[120px]">Cliente</TableHead>
+                            <TableHead className="hidden sm:table-cell min-w-[120px]">Telefone</TableHead>
+                            <TableHead className="min-w-[150px]">Itens</TableHead>
+                            <TableHead className="min-w-[80px]">Total</TableHead>
+                            <TableHead className="min-w-[80px]">Status</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -195,14 +193,15 @@ export function OrdersTable() {
                             <TableRow><TableCell colSpan={6} className="h-24 text-center">Nenhum pedido encontrado.</TableCell></TableRow>
                         ) : (
                             filteredOrders.map((order) => (
-                                <TableRow key={order.id}><TableCell className="font-medium">{formatOrderId(order.id)}</TableCell>
-                                    <TableCell>{order.customer_name}</TableCell>
-                                    <TableCell>{order.customer_phone}</TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={formatItemsForDisplay(order.items)}>
+                                <TableRow key={order.id}>
+                                    <TableCell className="font-medium whitespace-nowrap">{formatOrderId(order.id)}</TableCell>
+                                    <TableCell className="whitespace-nowrap">{order.customer_name}</TableCell>
+                                    <TableCell className="hidden sm:table-cell whitespace-nowrap">{order.customer_phone}</TableCell>
+                                    <TableCell className="max-w-[150px] truncate md:whitespace-normal" title={formatItemsForDisplay(order.items)}>
                                         {formatItemsForDisplay(order.items)}
                                     </TableCell>
-                                    <TableCell>$ {order.total_amount.toFixed(2)}</TableCell>
-                                    <TableCell>
+                                    <TableCell className="whitespace-nowrap">$ {order.total_amount.toFixed(2)}</TableCell>
+                                    <TableCell className="whitespace-nowrap">
                                         <Badge variant="outline" className={statusColors[order.status]}>
                                             {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                                         </Badge>

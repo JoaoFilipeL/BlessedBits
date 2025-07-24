@@ -193,31 +193,31 @@ export function FinancialTransactions() {
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 p-4 md:p-6 lg:p-8"> 
             {loading && <div className="text-center text-gray-500">Carregando transações...</div>}
             {error && <div className="text-center text-red-500">Erro: {error}</div>}
 
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4"> 
+                <div className="flex items-center gap-2 flex-wrap"> 
                     <h2 className="text-xl font-semibold">Transações</h2>
                     <Badge variant="outline" className="ml-2">
                         {filteredTransactions.length} transações
                     </Badge>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="relative">
+                <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto">
+                    <div className="relative w-full sm:w-auto">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                             type="search"
                             placeholder="Buscar transações..."
-                            className="pl-8 w-[250px]"
+                            className="pl-8 w-full sm:w-[250px]"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="outline">
+                            <Button variant="outline" className="w-full sm:w-auto"> 
                                 <Filter className="mr-2 h-4 w-4" />
                                 {filter === "todos" ? "Todos" : filter === "receita" ? "Receitas" : "Despesas"}
                             </Button>
@@ -230,17 +230,17 @@ export function FinancialTransactions() {
                     </DropdownMenu>
                     <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                         <DialogTrigger asChild>
-                            <Button>
+                            <Button className="w-full sm:w-auto"> 
                                 <Plus className="mr-2 h-4 w-4" />
                                 Nova Transação
                             </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-w-md w-[90%]">
                             <DialogHeader>
                                 <DialogTitle>Adicionar Nova Transação</DialogTitle>
                                 <DialogDescription>Registre uma nova transação financeira</DialogDescription>
                             </DialogHeader>
-                            <div className="grid gap-4 py-4">
+                            <div className="grid gap-4 py-4 overflow-y-auto max-h-[70vh] pr-4"> 
                                 <div className="grid gap-2">
                                     <Label htmlFor="type">Tipo</Label>
                                     <Select value={newType} onValueChange={(value: TransactionType) => setNewType(value)}>
@@ -275,7 +275,7 @@ export function FinancialTransactions() {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> 
                                     <div className="grid gap-2">
                                         <Label htmlFor="amount">Valor ($)</Label>
                                         <Input
@@ -303,16 +303,16 @@ export function FinancialTransactions() {
                     </Dialog>
                 </div>
             </div>
-            <div className="rounded-md border">
-                <Table>
+            <div className="rounded-md border overflow-x-auto"> 
+                <Table className="min-w-full">
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Data</TableHead>
-                            <TableHead>Descrição</TableHead>
-                            <TableHead>Categoria</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead className="text-right">Valor</TableHead>
-                            <TableHead className="text-right">Ações</TableHead>
+                            <TableHead className="min-w-[100px]">Data</TableHead> 
+                            <TableHead className="min-w-[150px]">Descrição</TableHead> 
+                            <TableHead className="hidden sm:table-cell min-w-[100px]">Categoria</TableHead> 
+                            <TableHead className="min-w-[80px]">Tipo</TableHead> 
+                            <TableHead className="text-right min-w-[100px]">Valor</TableHead> 
+                            <TableHead className="text-right min-w-[80px]">Ações</TableHead> 
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -339,7 +339,7 @@ export function FinancialTransactions() {
                                 <TableRow key={transaction.id}>
                                     <TableCell>{formatDate(transaction.transaction_date)}</TableCell>
                                     <TableCell className="font-medium">{transaction.description}</TableCell>
-                                    <TableCell className="capitalize">{transaction.category}</TableCell>
+                                    <TableCell className="capitalize hidden sm:table-cell">{transaction.category}</TableCell>
                                     <TableCell>
                                         {transaction.description.startsWith('Cancelamento do Pedido') ? (
                                             <Badge variant="outline" className={statusColors.cancelado}>
@@ -353,7 +353,6 @@ export function FinancialTransactions() {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <span className={
-
                                             transaction.description.startsWith('Cancelamento do Pedido')
                                                 ? "text-red-600"
                                                 : (transaction.type === "receita" ? "text-green-600" : "text-red-600")

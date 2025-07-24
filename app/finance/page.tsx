@@ -23,7 +23,7 @@ export default async function FinancesPage() {
   return (
     <DashboardApp>
       <DashboardHeader heading="Gestão Financeira" text="Acompanhe as finanças da sua loja." />
-      <div className="grid gap-8">
+      <div className="grid gap-8 p-4 md:p-6 lg:p-8"> 
         <FinancialSummary />
         <FinancialTransactions />
       </div>

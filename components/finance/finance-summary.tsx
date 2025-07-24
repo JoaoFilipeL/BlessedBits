@@ -111,59 +111,59 @@ export function FinancialSummary() {
 
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4"> 
             {loading ? (
-                <div className="md:col-span-4 text-center text-gray-500">Carregando resumo financeiro...</div>
+                <div className="col-span-full text-center text-gray-500">Carregando resumo financeiro...</div>
             ) : error ? (
-                <div className="md:col-span-4 text-center text-red-500">Erro: {error}</div>
+                <div className="col-span-full text-center text-red-500">Erro: {error}</div>
             ) : (
                 <>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <Card className="w-full h-full flex flex-col justify-between"> 
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4"> 
                             <CardTitle className="text-sm font-medium">Receita Total (Mês)</CardTitle>
-                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                            <DollarSign className="h-5 w-5 text-muted-foreground" /> 
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">$ {totalRevenue.toFixed(2)}</div>
+                        <CardContent className="p-4 pt-0"> 
+                            <div className="text-3xl font-bold">$ {totalRevenue.toFixed(2)}</div> 
                             <div className="flex items-center pt-1 text-xs text-green-600">
                                 <ArrowUpIcon className="mr-1 h-3 w-3" />
                                 <span>(Dados do mês atual)</span> 
                             </div>
                         </CardContent>
                     </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <Card className="w-full h-full flex flex-col justify-between"> 
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4"> 
                             <CardTitle className="text-sm font-medium">Despesas (Mês)</CardTitle>
-                            <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                            <TrendingDown className="h-5 w-5 text-muted-foreground" /> 
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">$ {totalExpenses.toFixed(2)}</div>
+                        <CardContent className="p-4 pt-0"> 
+                            <div className="text-3xl font-bold">$ {totalExpenses.toFixed(2)}</div> 
                             <div className="flex items-center pt-1 text-xs text-red-600">
                                 <ArrowDownIcon className="mr-1 h-3 w-3" />
                                 <span>(Dados do mês atual)</span> 
                             </div>
                         </CardContent>
                     </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <Card className="w-full h-full flex flex-col justify-between"> 
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4"> 
                             <CardTitle className="text-sm font-medium">Lucro Líquido</CardTitle>
-                            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                            <TrendingUp className="h-5 w-5 text-muted-foreground" /> 
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">$ {netProfit.toFixed(2)}</div>
+                        <CardContent className="p-4 pt-0"> 
+                            <div className="text-3xl font-bold">$ {netProfit.toFixed(2)}</div> 
                             <div className="flex items-center pt-1 text-xs text-green-600">
                                 <ArrowUpIcon className="mr-1 h-3 w-3" />
                                 <span>(Dados do mês atual)</span> 
                             </div>
                         </CardContent>
                     </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <Card className="w-full h-full flex flex-col justify-between"> 
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4"> 
                             <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
-                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                            <DollarSign className="h-5 w-5 text-muted-foreground" /> 
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">$ {averageTicket.toFixed(2)}</div>
+                        <CardContent className="p-4 pt-0"> 
+                            <div className="text-3xl font-bold">$ {averageTicket.toFixed(2)}</div> 
                             <div className="flex items-center pt-1 text-xs text-green-600">
                                 <ArrowUpIcon className="mr-1 h-3 w-3" />
                                 <span>(Dados do mês atual)</span> 

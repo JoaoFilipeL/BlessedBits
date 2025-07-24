@@ -1,5 +1,5 @@
 import { DashboardApp } from '@/components/dashboard/dashboard-app';
-import { DashboardHeader } from '@/components/dashboard/dashboard-header';
+import { DashboardHeader } from '@/components/dashboard/dashboard-header'; 
 import { DashboardStats } from '@/components/dashboard/dashboard-stats';
 import { OrdersTable } from '@/components/orders/orders-table';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';

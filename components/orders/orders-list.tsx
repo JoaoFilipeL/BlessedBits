@@ -1,4 +1,5 @@
 "use client"
+
 import type React from "react"
 import { useState, useEffect, useCallback } from "react"
 import { Input } from "@/components/ui/input"
@@ -18,6 +19,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 type OrderStatus = "em análise" | "em produção" | "pronto" | "cancelado"
@@ -207,7 +209,7 @@ export function OrdersList() {
         (order) =>
             (order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 order.id.toString().includes(searchTerm) ||
-                order.customer_phone.includes(searchTerm)) &&
+                order.customer_phone.toLowerCase().includes(searchTerm.toLowerCase())) &&
             (selectedStatus === "todos" || order.status === selectedStatus),
     );
 
@@ -395,7 +397,7 @@ export function OrdersList() {
             const orderTotalAmount = orderDetails.total_amount;
             const orderItems = orderDetails.items;
 
-            if (newStatus === "pronto" && oldStatus !== "pronto") { 
+            if (newStatus === "pronto" && oldStatus !== "pronto") {
                 const { data: existingSale, error: checkSaleError } = await supabase
                     .from('financial_transactions')
                     .select('id')
@@ -407,7 +409,7 @@ export function OrdersList() {
                     console.error("Erro ao verificar transação de venda existente:", checkSaleError);
                 }
 
-                if (!existingSale) { 
+                if (!existingSale) {
                     const { error: insertFinancialError } = await supabase
                         .from('financial_transactions')
                         .insert({
@@ -423,7 +425,7 @@ export function OrdersList() {
                         console.error("Erro ao registrar transação de venda:", insertFinancialError);
                     }
                 }
-            } else if (newStatus === "cancelado" && oldStatus !== "cancelado") { 
+            } else if (newStatus === "cancelado" && oldStatus !== "cancelado") {
                 const revertStockPromises = orderItems.map(async (item: any) => {
                     const { data: currentStockItem, error: stockError } = await supabase
                         .from('stock')
@@ -449,9 +451,9 @@ export function OrdersList() {
                     .insert({
                         transaction_date: new Date().toISOString().split('T')[0],
                         description: `Cancelamento do Pedido ${formatOrderId(orderId)}`,
-                        category: 'venda', 
-                        amount: -orderTotalAmount, 
-                        type: 'receita', 
+                        category: 'venda',
+                        amount: -orderTotalAmount,
+                        type: 'receita',
                         order_id: orderId,
                     });
 
@@ -487,7 +489,7 @@ export function OrdersList() {
             const { error: deleteFinancialError } = await supabase
                 .from('financial_transactions')
                 .delete()
-                .eq('order_id', orderId); 
+                .eq('order_id', orderId);
 
             if (deleteFinancialError) {
                 console.error("Erro ao remover transações financeiras ao excluir pedido:", deleteFinancialError);

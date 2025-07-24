@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Plus, RefreshCw, Trash2 } from "lucide-react" // Adicionado Trash2
+import { Search, Plus, RefreshCw, Trash2 } from "lucide-react" 
 import {
     Dialog,
     DialogContent,
@@ -176,7 +176,6 @@ export function StockTable() {
                     quantity: newQuantity,
                 })
                 .eq('id', selectedItem.id);
-
             if (error) {
                 console.error("Erro ao atualizar quantidade do item:", error);
                 setError(error.message);
@@ -224,41 +223,41 @@ export function StockTable() {
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 p-4 md:p-6 lg:p-8"> 
             {loading && <div className="text-center text-gray-500">Carregando estoque...</div>}
             {error && <div className="text-center text-red-500">Erro: {error}</div>}
 
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4"> 
+                <div className="flex items-center gap-2 flex-wrap"> 
                     <h2 className="text-xl font-semibold">Estoque de Salgadinhos</h2>
                     <Badge variant="outline" className="ml-2">
                         {stock.length} itens
                     </Badge>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="relative">
+                <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto"> 
+                    <div className="relative w-full sm:w-auto"> 
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                             type="search"
                             placeholder="Buscar salgadinhos..."
-                            className="pl-8 w-[250px]"
+                            className="pl-8 w-full sm:w-[250px]"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
                     <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                         <DialogTrigger asChild>
-                            <Button>
+                            <Button className="w-full sm:w-auto"> 
                                 <Plus className="mr-2 h-4 w-4" />
                                 Novo Salgadinho
                             </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-w-md w-[90%]"> 
                             <DialogHeader>
                                 <DialogTitle>Adicionar Novo Salgadinho</DialogTitle>
                                 <DialogDescription>Preencha os detalhes do novo salgadinho</DialogDescription>
                             </DialogHeader>
-                            <div className="grid gap-4 py-4">
+                            <div className="grid gap-4 py-4 overflow-y-auto max-h-[70vh] pr-4"> 
                                 <div className="grid gap-2">
                                     <Label htmlFor="name">Nome do Salgadinho</Label>
                                     <Input
@@ -268,7 +267,7 @@ export function StockTable() {
                                         placeholder="Ex: Coxinha de Frango"
                                     />
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="grid gap-2">
                                         <Label htmlFor="quantity">Quantidade</Label>
                                         <Input
@@ -290,7 +289,7 @@ export function StockTable() {
                                         />
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="grid gap-2">
                                         <Label htmlFor="minQuantity">Quantidade Mínima</Label>
                                         <Input
@@ -324,16 +323,16 @@ export function StockTable() {
                     </Dialog>
                 </div>
             </div>
-            <div className="rounded-md border">
-                <Table>
+            <div className="rounded-md border overflow-x-auto">
+                <Table className="min-w-full"> 
                     <TableHeader>
                         <TableRow>
                             <TableHead>Nome</TableHead>
-                            <TableHead>Quantidade</TableHead>
-                            <TableHead>Preço</TableHead>
-                            <TableHead>Mínimo</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Ações</TableHead>
+                            <TableHead className="min-w-[80px]">Quantidade</TableHead> 
+                            <TableHead className="min-w-[80px]">Preço</TableHead> 
+                            <TableHead className="hidden md:table-cell">Mínimo</TableHead> 
+                            <TableHead className="min-w-[80px]">Status</TableHead> 
+                            <TableHead className="text-right min-w-[120px]">Ações</TableHead> 
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -363,7 +362,7 @@ export function StockTable() {
                                         {item.quantity} {item.unit}
                                     </TableCell>
                                     <TableCell>$ {item.price.toFixed(2)}</TableCell>
-                                    <TableCell>
+                                    <TableCell className="hidden md:table-cell">
                                         {item.minQuantity} {item.unit}
                                     </TableCell>
                                     <TableCell>
@@ -393,7 +392,7 @@ export function StockTable() {
             </div>
 
             <Dialog open={isUpdateDialogOpen} onOpenChange={setIsUpdateDialogOpen}>
-                <DialogContent>
+                <DialogContent className="max-w-md w-[90%]"> 
                     <DialogHeader>
                         <DialogTitle>Atualizar Quantidade</DialogTitle>
                         <DialogDescription>{selectedItem && `Atualize a quantidade de ${selectedItem.name}`}</DialogDescription>
