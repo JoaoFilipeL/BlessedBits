@@ -17,14 +17,15 @@ const statusColors: Record<OrderStatus, string> = {
 }
 
 interface OrderItem {
-    product_id: string;
+    product_id: string; 
     product_name: string;
     product_price: number;
     quantity: number;
+    is_combo_item?: boolean; 
 }
 
 interface Order {
-    id: number;
+    id: number; 
     customer_name: string;
     customer_phone: string;
     address: string | null;
@@ -32,6 +33,8 @@ interface Order {
     total_amount: number;
     status: OrderStatus;
     created_at: string;
+    delivery_date: string | null; 
+    delivery_fee: number; 
     items: OrderItem[];
 }
 
@@ -49,9 +52,9 @@ export function OrdersTable() {
         try {
             const { data: ordersData, error: ordersError } = await supabase
                 .from('orders')
-                .select('*')
+                .select('*') 
                 .order('created_at', { ascending: false })
-                .limit(5);
+                .limit(5); 
 
             if (ordersError) {
                 console.error("Erro ao buscar pedidos recentes:", ordersError);
@@ -81,6 +84,7 @@ export function OrdersTable() {
                         product_name: item.product_name,
                         product_price: parseFloat(item.product_price),
                         quantity: item.quantity,
+                        is_combo_item: item.is_combo_item || false, 
                     }));
 
                 return {
@@ -92,6 +96,8 @@ export function OrdersTable() {
                     total_amount: parseFloat(order.total_amount),
                     status: order.status as OrderStatus,
                     created_at: order.created_at,
+                    delivery_date: order.delivery_date, 
+                    delivery_fee: parseFloat(order.delivery_fee || 0), 
                     items: itemsForOrder,
                 };
             });
@@ -114,7 +120,7 @@ export function OrdersTable() {
                 { event: '*', schema: 'public', table: 'orders' },
                 (payload) => {
                     console.log('Mudança em pedidos recentes em tempo real!', payload);
-                    fetchRecentOrders();
+                    fetchRecentOrders(); 
                 }
             )
             .subscribe();
@@ -126,7 +132,7 @@ export function OrdersTable() {
                 { event: '*', schema: 'public', table: 'order_items' },
                 (payload) => {
                     console.log('Mudança em itens de pedidos recentes em tempo real!', payload);
-                    fetchRecentOrders();
+                    fetchRecentOrders(); 
                 }
             )
             .subscribe();
@@ -140,8 +146,8 @@ export function OrdersTable() {
     const filteredOrders = orders.filter(
         (order) =>
             order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            order.id.toString().includes(searchTerm) ||
-            order.customer_phone.includes(searchTerm),
+            order.id.toString().includes(searchTerm) || 
+            order.customer_phone.toLowerCase().includes(searchTerm.toLowerCase()), 
     );
 
     const formatItemsForDisplay = (orderItems: OrderItem[]) => {
@@ -149,8 +155,31 @@ export function OrdersTable() {
     };
 
     const formatOrderId = (id: number) => {
-        return `PED-${id.toString().padStart(4, '0')}`;
+        return `PED-${id.toString().padStart(4, '0')}`; 
     };
+
+    const formatDeliveryDate = (dateString: string | null) => {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString + 'T00:00:00'); 
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0'); 
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`; 
+    };
+
+    const formatPhoneNumberUS = (value: string) => {
+        const numericValue = value.replace(/\D/g, "");
+        if (numericValue.length <= 3) {
+            return numericValue;
+        } else if (numericValue.length <= 6) {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3)}`;
+        } else if (numericValue.length <= 10) {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
+        } else {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
+        }
+    };
+
 
     return (
         <div className="space-y-4">
@@ -182,21 +211,22 @@ export function OrdersTable() {
                             <TableHead className="min-w-[150px]">Itens</TableHead>
                             <TableHead className="min-w-[80px]">Total</TableHead>
                             <TableHead className="min-w-[80px]">Status</TableHead>
+                            <TableHead className="hidden md:table-cell min-w-[120px]">Entrega</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading ? (
-                            <TableRow><TableCell colSpan={6} className="h-24 text-center">Carregando pedidos...</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={7} className="h-24 text-center">Carregando pedidos...</TableCell></TableRow> 
                         ) : error ? (
-                            <TableRow><TableCell colSpan={6} className="h-24 text-center text-red-500">{error}</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={7} className="h-24 text-center text-red-500">{error}</TableCell></TableRow> 
                         ) : filteredOrders.length === 0 ? (
-                            <TableRow><TableCell colSpan={6} className="h-24 text-center">Nenhum pedido encontrado.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={7} className="h-24 text-center">Nenhum pedido encontrado.</TableCell></TableRow> 
                         ) : (
                             filteredOrders.map((order) => (
                                 <TableRow key={order.id}>
                                     <TableCell className="font-medium whitespace-nowrap">{formatOrderId(order.id)}</TableCell>
                                     <TableCell className="whitespace-nowrap">{order.customer_name}</TableCell>
-                                    <TableCell className="hidden sm:table-cell whitespace-nowrap">{order.customer_phone}</TableCell>
+                                    <TableCell className="hidden sm:table-cell whitespace-nowrap">{formatPhoneNumberUS(order.customer_phone)}</TableCell> 
                                     <TableCell className="max-w-[150px] truncate md:whitespace-normal" title={formatItemsForDisplay(order.items)}>
                                         {formatItemsForDisplay(order.items)}
                                     </TableCell>
@@ -205,6 +235,9 @@ export function OrdersTable() {
                                         <Badge variant="outline" className={statusColors[order.status]}>
                                             {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                                         </Badge>
+                                    </TableCell>
+                                    <TableCell className="hidden md:table-cell whitespace-nowrap">
+                                        {formatDeliveryDate(order.delivery_date)}
                                     </TableCell>
                                 </TableRow>
                             ))

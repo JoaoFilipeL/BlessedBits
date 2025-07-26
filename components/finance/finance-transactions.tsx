@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Plus, Filter, Trash2 } from "lucide-react"
+import { Search, Plus, Filter, Trash2, Eye } from "lucide-react" 
 import {
     Dialog,
     DialogContent,
@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
-type TransactionCategory = "venda" | "compra" | "outros";
+type TransactionCategory = "venda" | "compra" | "salário" | "aluguel" | "outros";
 type TransactionType = "receita" | "despesa";
 
 interface Transaction {
@@ -30,6 +30,16 @@ interface Transaction {
     amount: number;
     type: TransactionType;
     created_at: string;
+    user_id?: string; 
+}
+
+interface Receipt {
+    id: string; 
+    transaction_id: string; 
+    file_path: string;
+    uploaded_at: string; 
+    file_name: string; 
+    user_id: string;
 }
 
 const typeColors: Record<string, string> = {
@@ -40,7 +50,7 @@ const typeColors: Record<string, string> = {
 const statusColors: Record<string, string> = {
     "em análise": "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
     "em produção": "bg-blue-100 text-blue-800 hover:bg-blue-200",
-    pronto: "bg-green-100 text-green-800 hover:bg-green-200",
+    pronto: "bg-green-100 text-green-800 hover:bg-green-200", 
     cancelado: "bg-red-100 text-red-800 hover:bg-red-200", 
 }
 
@@ -53,31 +63,63 @@ export function FinancialTransactions() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const getTodayDate = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [newDescription, setNewDescription] = useState("");
     const [newCategory, setNewCategory] = useState<TransactionCategory>("venda");
     const [newAmount, setNewAmount] = useState("");
     const [newType, setNewType] = useState<TransactionType>("receita");
-    const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0]);
+    const [newDate, setNewDate] = useState(getTodayDate()); 
+
+    const [receipts, setReceipts] = useState<Receipt[]>([]); 
+
+    const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+    const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+
 
     const supabase = createClientComponentClient();
 
-    const fetchTransactions = useCallback(async () => {
+    const getUserId = useCallback(async () => {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+            console.error("Erro ao obter sessão do usuário:", sessionError);
+            return null;
+        }
+        return session?.user?.id || null;
+    }, [supabase]);
+
+    const fetchTransactionsAndReceipts = useCallback(async () => { 
         setLoading(true);
         setError(null);
         try {
-            const { data, error } = await supabase
-                .from('financial_transactions')
-                .select('*')
-                .order('transaction_date', { ascending: false })
-                .order('created_at', { ascending: false });
-
-            if (error) {
-                console.error("Erro ao buscar transações:", error);
-                setError(error.message);
+            const userId = await getUserId();
+            if (!userId) {
+                setError("Usuário não autenticado para buscar dados.");
+                setLoading(false);
                 return;
             }
 
-            const fetchedTransactions: Transaction[] = data.map(item => ({
+            const { data: transactionsData, error: transactionsError } = await supabase
+                .from('financial_transactions')
+                .select('*')
+                .eq('user_id', userId) 
+                .order('transaction_date', { ascending: false })
+                .order('created_at', { ascending: false });
+
+            if (transactionsError) {
+                console.error("Erro ao buscar transações:", transactionsError);
+                setError(transactionsError.message);
+                setLoading(false);
+                return;
+            }
+
+            const fetchedTransactions: Transaction[] = transactionsData.map(item => ({
                 id: item.id,
                 transaction_date: item.transaction_date,
                 description: item.description,
@@ -85,18 +127,34 @@ export function FinancialTransactions() {
                 amount: parseFloat(item.amount),
                 type: item.type as TransactionType,
                 created_at: item.created_at,
+                user_id: item.user_id,
             }));
             setTransactions(fetchedTransactions);
+
+            const { data: receiptsData, error: receiptsError } = await supabase
+                .from('receipt_images')
+                .select('*')
+                .eq('user_id', userId) 
+                .order('uploaded_at', { ascending: false });
+
+            if (receiptsError) {
+                console.error("Erro ao buscar recibos:", receiptsError);
+                setError(receiptsError.message);
+                setLoading(false);
+                return;
+            }
+            setReceipts(receiptsData as Receipt[]);
+
         } catch (err: any) {
-            console.error("Erro inesperado ao buscar transações:", err);
-            setError(err.message || "Erro ao carregar transações.");
+            console.error("Erro inesperado ao buscar transações e recibos:", err);
+            setError(err.message || "Erro ao carregar transações e recibos.");
         } finally {
             setLoading(false);
         }
-    }, [supabase]);
+    }, [supabase, getUserId]);
 
     useEffect(() => {
-        fetchTransactions();
+        fetchTransactionsAndReceipts();
 
         const channel = supabase
             .channel('financial_transactions_changes')
@@ -105,7 +163,15 @@ export function FinancialTransactions() {
                 { event: '*', schema: 'public', table: 'financial_transactions' },
                 (payload) => {
                     console.log('Mudança em transações em tempo real!', payload);
-                    fetchTransactions();
+                    fetchTransactionsAndReceipts();
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'receipt_images' }, 
+                (payload) => {
+                    console.log('Mudança em recibos em tempo real!', payload);
+                    fetchTransactionsAndReceipts();
                 }
             )
             .subscribe();
@@ -113,7 +179,7 @@ export function FinancialTransactions() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [supabase, fetchTransactions]);
+    }, [supabase, fetchTransactionsAndReceipts]);
 
     const filteredTransactions = transactions.filter(
         (transaction) =>
@@ -122,7 +188,14 @@ export function FinancialTransactions() {
             (filter === "todos" || transaction.type === filter),
     );
 
+
     const addNewTransaction = async () => {
+        const userId = await getUserId();
+        if (!userId) {
+            setError("Usuário não autenticado. Por favor, faça login.");
+            return;
+        }
+
         const amount = Number.parseFloat(newAmount);
 
         if (!newDescription || isNaN(amount) || amount <= 0) {
@@ -131,8 +204,9 @@ export function FinancialTransactions() {
             return;
         }
 
+
         try {
-            const { error } = await supabase
+            const { error: transactionError } = await supabase
                 .from('financial_transactions')
                 .insert([
                     {
@@ -141,25 +215,25 @@ export function FinancialTransactions() {
                         category: newCategory,
                         amount: amount,
                         type: newType,
+                        user_id: userId, 
                     },
                 ]);
 
-            if (error) {
-                console.error("Erro ao adicionar nova transação:", error);
-                setError(error.message);
-                return;
-            }
+            if (transactionError) throw transactionError;
 
+      
             setNewDescription("");
             setNewCategory("venda");
             setNewAmount("");
             setNewType("receita");
-            setNewDate(new Date().toISOString().split("T")[0]);
-            setIsAddDialogOpen(false);
-            setError(null);
+            setNewDate(getTodayDate()); 
+            setIsAddDialogOpen(false); 
+            setError(null); 
         } catch (err: any) {
-            console.error("Erro inesperado ao adicionar transação:", err);
-            setError(err.message || "Erro ao adicionar transação.");
+            console.error("Erro ao adicionar transação:", err); 
+            setError(err.message || "Erro ao adicionar transação."); 
+        } finally {
+          
         }
     };
 
@@ -170,6 +244,35 @@ export function FinancialTransactions() {
         setLoading(true);
         setError(null);
         try {
+            const { data: associatedReceipts, error: fetchReceiptsError } = await supabase
+                .from('receipt_images')
+                .select('id, file_path')
+                .eq('transaction_id', transactionId);
+
+            if (fetchReceiptsError) {
+                console.error("Erro ao buscar recibos associados:", fetchReceiptsError);
+                throw fetchReceiptsError;
+            }
+
+            if (associatedReceipts && associatedReceipts.length > 0) {
+                const filePathsToDelete = associatedReceipts.map(r => r.file_path);
+                const { error: deleteStorageError } = await supabase.storage
+                    .from('receipts')
+                    .remove(filePathsToDelete);
+
+                if (deleteStorageError) {
+                    console.error("Erro ao deletar arquivos do Storage:", deleteStorageError);
+                }
+
+                const { error: deleteReceiptsDbError } = await supabase
+                    .from('receipt_images')
+                    .delete()
+                    .eq('transaction_id', transactionId);
+
+                if (deleteReceiptsDbError) {
+                    console.error("Erro ao deletar registros de recibo do DB:", deleteReceiptsDbError);
+                }
+            }
             const { error } = await supabase
                 .from('financial_transactions')
                 .delete()
@@ -188,9 +291,47 @@ export function FinancialTransactions() {
     };
 
     const formatDate = (dateString: string) => {
-        const date = new Date(dateString + 'T00:00:00');
-        return date.toLocaleDateString("pt-BR");
+        const date = new Date(dateString + 'T00:00:00'); 
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0'); 
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
     };
+
+    const handleViewReceipt = async (transactionId: string) => {
+        const userId = await getUserId();
+        if (!userId) {
+            setError("Usuário não autenticado."); 
+            return;
+        }
+        try {
+            const { data: receiptData, error: fetchReceiptError } = await supabase
+                .from('receipt_images')
+                .select('file_path')
+                .eq('transaction_id', transactionId)
+                .eq('user_id', userId)
+                .single();
+
+            if (fetchReceiptError || !receiptData) {
+                setError("Recibo não encontrado para esta transação.");
+                return;
+            }
+
+            const { data, error: signedUrlError } = await supabase.storage
+                .from('receipts')
+                .createSignedUrl(receiptData.file_path, 3600); 
+
+            if (signedUrlError) throw signedUrlError;
+            
+            setCurrentImageUrl(data.signedUrl);
+            setIsImageViewerOpen(true);
+
+        } catch (err: any) {
+            console.error("Erro ao gerar URL do recibo:", err);
+            setError(err.message || "Erro ao visualizar recibo.");
+        }
+    };
+
 
     return (
         <div className="space-y-4 p-4 md:p-6 lg:p-8"> 
@@ -241,6 +382,11 @@ export function FinancialTransactions() {
                                 <DialogDescription>Registre uma nova transação financeira</DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-4 py-4 overflow-y-auto max-h-[70vh] pr-4"> 
+                                {error && ( 
+                                    <div className="bg-red-100 text-red-700 p-3 rounded-md text-sm">
+                                        {error}
+                                    </div>
+                                )}
                                 <div className="grid gap-2">
                                     <Label htmlFor="type">Tipo</Label>
                                     <Select value={newType} onValueChange={(value: TransactionType) => setNewType(value)}>
@@ -297,7 +443,9 @@ export function FinancialTransactions() {
                                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                                     Cancelar
                                 </Button>
-                                <Button onClick={addNewTransaction}>Adicionar</Button>
+                                <Button onClick={addNewTransaction}>
+                                    Adicionar Transação
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -362,6 +510,17 @@ export function FinancialTransactions() {
                                         </span>
                                     </TableCell>
                                     <TableCell className="text-right">
+                                        {transaction.type === "despesa" && receipts.some(r => r.transaction_id === transaction.id) && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => handleViewReceipt(transaction.id)}
+                                                className="text-blue-500 hover:text-blue-600 mr-2"
+                                                title="Ver Recibo"
+                                            >
+                                                <Eye className="h-4 w-4" />
+                                            </Button>
+                                        )}
                                         <Button
                                             variant="ghost"
                                             size="icon"
@@ -377,6 +536,22 @@ export function FinancialTransactions() {
                     </TableBody>
                 </Table>
             </div>
+            <Dialog open={isImageViewerOpen} onOpenChange={setIsImageViewerOpen}>
+                <DialogContent className="max-w-3xl w-[95%] h-[90vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>Visualizar Recibo</DialogTitle>
+                        <DialogDescription>Visualização do recibo.</DialogDescription>
+                    </DialogHeader>
+                    <div className="flex-grow flex items-center justify-center overflow-hidden">
+                        {currentImageUrl && (
+                            <img src={currentImageUrl} alt="Recibo" className="max-w-full max-h-full object-contain" />
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button onClick={() => setIsImageViewerOpen(false)}>Fechar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

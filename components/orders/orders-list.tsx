@@ -1,5 +1,4 @@
 "use client"
-
 import type React from "react"
 import { useState, useEffect, useCallback } from "react"
 import { Input } from "@/components/ui/input"
@@ -19,7 +18,6 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 type OrderStatus = "em análise" | "em produção" | "pronto" | "cancelado"
@@ -35,14 +33,29 @@ interface Product {
     id: string;
     name: string;
     price: number;
-    quantity?: number;
+    quantity?: number; 
+}
+
+interface ComboItemDB {
+    product_id: string;
+    quantity: number;
+}
+
+interface ProductCombo {
+    id: string;
+    name: string;
+    description: string | null;
+    price: number;
+    items: ComboItemDB[]; 
 }
 
 interface OrderItem {
+    order_id?: number; 
     product_id: string;
     product_name: string;
     product_price: number;
     quantity: number;
+    is_combo_item?: boolean; 
 }
 
 interface Order {
@@ -54,47 +67,69 @@ interface Order {
     total_amount: number;
     status: OrderStatus;
     created_at: string;
+    delivery_date: string | null; 
+    delivery_fee: number; 
     items: OrderItem[];
 }
 
 export function OrdersList() {
     const [orders, setOrders] = useState<Order[]>([]);
-    const [products, setProducts] = useState<Product[]>([]);
+    const [products, setProducts] = useState<Product[]>([]); 
+    const [combos, setCombos] = useState<ProductCombo[]>([]); 
     const [searchTerm, setSearchTerm] = useState("");
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [selectedStatus, setSelectedStatus] = useState<OrderStatus | "todos">("todos");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [addFormError, setAddFormError] = useState<string | null>(null);
+
 
     const [customerName, setCustomerName] = useState("");
     const [customerPhone, setCustomerPhone] = useState("");
     const [address, setAddress] = useState("");
     const [notes, setNotes] = useState("");
-    const [items, setItems] = useState<OrderItem[]>([]);
-    const [selectedProductId, setSelectedProductId] = useState<string>("");
+    const [items, setItems] = useState<OrderItem[]>([]); 
+    const [selectedProductOrComboId, setSelectedProductOrComboId] = useState<string>(""); 
     const [itemQuantity, setItemQuantity] = useState(1);
+    const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
+    const [deliveryFee, setDeliveryFee] = useState("0.00"); 
 
     const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
     const [selectedOrderDetails, setSelectedOrderDetails] = useState<Order | null>(null);
 
+    const [isMapSelectionDialogOpen, setIsMapSelectionDialogOpen] = useState(false);
+    const [addressToNavigate, setAddressToNavigate] = useState<string | null>(null);
+
 
     const supabase = createClientComponentClient();
 
-    const fetchProducts = useCallback(async () => {
+    const fetchProductsAndCombos = useCallback(async () => {
         try {
-            const { data, error } = await supabase
+            const { data: productsData, error: productsError } = await supabase
                 .from('stock')
                 .select('id, name, price, quantity')
                 .order('name', { ascending: true });
 
-            if (error) {
-                console.error("Erro ao buscar produtos:", error);
-                return;
-            }
-            setProducts(data.map(p => ({ id: p.id, name: p.name, price: parseFloat(p.price), quantity: p.quantity })));
+            if (productsError) throw productsError;
+            setProducts(productsData.map(p => ({ id: p.id, name: p.name, price: parseFloat(p.price), quantity: p.quantity })));
+
+            const { data: combosData, error: combosError } = await supabase
+                .from('product_combos')
+                .select('*')
+                .order('name', { ascending: true });
+
+            if (combosError) throw combosError;
+            setCombos(combosData.map(c => ({
+                id: c.id,
+                name: c.name,
+                description: c.description,
+                price: parseFloat(c.price),
+                items: typeof c.items === 'string' ? JSON.parse(c.items) : c.items
+            })));
+
         } catch (err: any) {
-            console.error("Erro inesperado ao buscar produtos:", err);
-            setError(err.message || "Erro ao carregar produtos.");
+            console.error("Erro ao buscar produtos/combos:", err);
+            setError(err.message || "Erro ao carregar produtos e combos.");
         }
     }, [supabase]);
 
@@ -104,15 +139,10 @@ export function OrdersList() {
         try {
             const { data: ordersData, error: ordersError } = await supabase
                 .from('orders')
-                .select('*')
+                .select('*') 
                 .order('created_at', { ascending: false });
 
-            if (ordersError) {
-                console.error("Erro ao buscar pedidos:", ordersError);
-                setError(ordersError.message);
-                setLoading(false);
-                return;
-            }
+            if (ordersError) throw ordersError;
 
             const orderIds = ordersData.map(order => order.id);
             const { data: orderItemsData, error: orderItemsError } = await supabase
@@ -120,21 +150,18 @@ export function OrdersList() {
                 .select('*')
                 .in('order_id', orderIds);
 
-            if (orderItemsError) {
-                console.error("Erro ao buscar itens de pedido:", orderItemsError);
-                setError(orderItemsError.message);
-                setLoading(false);
-                return;
-            }
+            if (orderItemsError) throw orderItemsError;
 
             const combinedOrders: Order[] = ordersData.map(order => {
                 const itemsForOrder: OrderItem[] = orderItemsData
                     .filter(item => item.order_id === order.id)
                     .map(item => ({
+                        order_id: item.order_id, 
                         product_id: item.product_id,
                         product_name: item.product_name,
                         product_price: parseFloat(item.product_price),
                         quantity: item.quantity,
+                        is_combo_item: item.is_combo_item || false, 
                     }));
 
                 return {
@@ -146,6 +173,8 @@ export function OrdersList() {
                     total_amount: parseFloat(order.total_amount),
                     status: order.status as OrderStatus,
                     created_at: order.created_at,
+                    delivery_date: order.delivery_date, 
+                    delivery_fee: parseFloat(order.delivery_fee || 0), 
                     items: itemsForOrder,
                 };
             });
@@ -159,7 +188,7 @@ export function OrdersList() {
     }, [supabase]);
 
     useEffect(() => {
-        fetchProducts();
+        fetchProductsAndCombos(); 
         fetchOrders();
 
         const ordersChannel = supabase
@@ -193,23 +222,37 @@ export function OrdersList() {
                 { event: '*', schema: 'public', table: 'stock' },
                 (payload) => {
                     console.log('Mudança no estoque em tempo real para pedidos!', payload);
-                    fetchProducts();
+                    fetchProductsAndCombos(); 
                 }
             )
             .subscribe();
+        
+        const combosChannel = supabase
+            .channel('product_combos_changes')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'product_combos' },
+                (payload) => {
+                    console.log('Mudança em combos em tempo real!', payload);
+                    fetchProductsAndCombos();
+                }
+            )
+            .subscribe();
+
 
         return () => {
             supabase.removeChannel(ordersChannel);
             supabase.removeChannel(orderItemsChannel);
             supabase.removeChannel(stockChannel);
+            supabase.removeChannel(combosChannel); 
         };
-    }, [supabase, fetchProducts, fetchOrders]);
+    }, [supabase, fetchProductsAndCombos, fetchOrders]);
 
     const filteredOrders = orders.filter(
         (order) =>
             (order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 order.id.toString().includes(searchTerm) ||
-                order.customer_phone.toLowerCase().includes(searchTerm.toLowerCase())) &&
+                order.customer_phone.toLowerCase().includes(searchTerm.toLowerCase())) && 
             (selectedStatus === "todos" || order.status === selectedStatus),
     );
 
@@ -231,42 +274,75 @@ export function OrdersList() {
     };
 
     const addItem = () => {
-        if (!selectedProductId) return;
-
-        const product = products.find((p) => p.id === selectedProductId);
-        if (!product) return;
-
-        if (product.quantity !== undefined && itemQuantity > product.quantity) {
-            setError(`Estoque insuficiente para ${product.name}. Disponível: ${product.quantity}`);
+        setAddFormError(null); 
+        if (!selectedProductOrComboId) {
+            setAddFormError("Por favor, selecione um produto ou combo.");
             return;
         }
 
-        const existingItemIndex = items.findIndex((item) => item.product_id === product.id);
+        const product = products.find((p) => p.id === selectedProductOrComboId);
+        const combo = combos.find((c) => c.id === selectedProductOrComboId);
 
-        if (existingItemIndex >= 0) {
-            const updatedItems = [...items];
-            const newTotalQuantity = updatedItems[existingItemIndex].quantity + itemQuantity;
-            if (product.quantity !== undefined && newTotalQuantity > product.quantity) {
-                setError(`Estoque insuficiente para ${product.name}. Você já tem ${updatedItems[existingItemIndex].quantity} e quer adicionar ${itemQuantity}. Disponível total: ${product.quantity}`);
+        if (!product && !combo) {
+            setAddFormError("Produto ou combo selecionado não encontrado.");
+            return;
+        }
+
+        if (product) { 
+            if (product.quantity !== undefined && itemQuantity > product.quantity) {
+                setAddFormError(`Estoque insuficiente para ${product.name}. Disponível: ${product.quantity}`);
                 return;
             }
-            updatedItems[existingItemIndex].quantity = newTotalQuantity;
-            setItems(updatedItems);
-        } else {
+
+            const existingItemIndex = items.findIndex((item) => item.product_id === product.id && !item.is_combo_item);
+
+            if (existingItemIndex >= 0) {
+                const updatedItems = [...items];
+                const newTotalQuantity = updatedItems[existingItemIndex].quantity + itemQuantity;
+                if (product.quantity !== undefined && newTotalQuantity > product.quantity) {
+                    setAddFormError(`Estoque insuficiente para ${product.name}. Você já tem ${updatedItems[existingItemIndex].quantity} e quer adicionar ${itemQuantity}. Disponível total: ${product.quantity}`);
+                    return;
+                }
+                updatedItems[existingItemIndex].quantity = newTotalQuantity;
+                setItems(updatedItems);
+            } else {
+                setItems([
+                    ...items,
+                    {
+                        product_id: product.id,
+                        product_name: product.name,
+                        product_price: product.price,
+                        quantity: itemQuantity,
+                        is_combo_item: false,
+                    },
+                ]);
+            }
+        } else if (combo) { 
+            for (const comboPart of combo.items) {
+                const productInStock = products.find(p => p.id === comboPart.product_id);
+                const requiredQuantity = comboPart.quantity * itemQuantity; 
+
+                if (!productInStock || (productInStock.quantity !== undefined && productInStock.quantity < requiredQuantity)) {
+                    setAddFormError(`Estoque insuficiente para "${productInStock?.name || 'Produto Desconhecido'}" no combo "${combo.name}". Necessário: ${requiredQuantity}, Disponível: ${productInStock?.quantity || 0}`);
+                    return; 
+                }
+            }
+
             setItems([
                 ...items,
                 {
-                    product_id: product.id,
-                    product_name: product.name,
-                    product_price: product.price,
+                    product_id: combo.id, 
+                    product_name: combo.name, 
+                    product_price: combo.price,
                     quantity: itemQuantity,
+                    is_combo_item: true, 
                 },
             ]);
         }
 
-        setSelectedProductId("");
+        setSelectedProductOrComboId("");
         setItemQuantity(1);
-        setError(null);
+        setAddFormError(null); 
     };
 
     const removeItem = (index: number) => {
@@ -274,22 +350,27 @@ export function OrdersList() {
     };
 
     const calculateTotal = () => {
-        return items.reduce((sum, item) => sum + item.product_price * item.quantity, 0);
+        let total = items.reduce((sum, item) => sum + item.product_price * item.quantity, 0);
+        total += parseFloat(deliveryFee);
+        return total;
     };
 
-    const formatPhoneNumber = (value: string) => {
+    const formatPhoneNumberUS = (value: string) => {
         const numericValue = value.replace(/\D/g, "");
-        if (numericValue.length <= 2) {
+        if (numericValue.length <= 3) {
             return numericValue;
-        } else if (numericValue.length <= 7) {
-            return `(${numericValue.slice(0, 2)}) ${numericValue.slice(2)}`;
+        } else if (numericValue.length <= 6) {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3)}`;
+        } else if (numericValue.length <= 10) {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
         } else {
-            return `(${numericValue.slice(0, 2)}) ${numericValue.slice(2, 7)}-${numericValue.slice(7, 11)}`;
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
         }
     };
 
+
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setCustomerPhone(formatPhoneNumber(e.target.value));
+        setCustomerPhone(formatPhoneNumberUS(e.target.value)); 
     };
 
     const formatItemsForDisplay = (orderItems: OrderItem[]) => {
@@ -301,25 +382,53 @@ export function OrdersList() {
     };
 
     const addNewOrder = async () => {
+        setAddFormError(null); 
         if (items.length === 0 || !customerName || !customerPhone) {
-            console.error("Por favor, preencha o nome do cliente, telefone e adicione pelo menos um item ao pedido.");
-            setError("Por favor, preencha o nome do cliente, telefone e adicione pelo menos um item ao pedido.");
+            setAddFormError("Por favor, preencha o nome do cliente, telefone e adicione pelo menos um item ao pedido.");
             return;
         }
 
         try {
+            const productsToDeduct: { id: string; quantity: number }[] = [];
+
+            for (const orderItem of items) {
+                if (orderItem.is_combo_item) {
+                    const combo = combos.find(c => c.id === orderItem.product_id);
+                    if (!combo) {
+                        setAddFormError(`Combo "${orderItem.product_name}" não encontrado.`);
+                        return;
+                    }
+                    combo.items.forEach(cItem => {
+                        const existingDeduction = productsToDeduct.find(p => p.id === cItem.product_id);
+                        if (existingDeduction) {
+                            existingDeduction.quantity += cItem.quantity * orderItem.quantity;
+                        } else {
+                            productsToDeduct.push({ id: cItem.product_id, quantity: cItem.quantity * orderItem.quantity });
+                        }
+                    });
+                } else {
+                    const existingDeduction = productsToDeduct.find(p => p.id === orderItem.product_id); 
+                    if (existingDeduction) {
+                        existingDeduction.quantity += orderItem.quantity;
+                    } else {
+                        productsToDeduct.push({ id: orderItem.product_id, quantity: orderItem.quantity });
+                    }
+                }
+            }
+
             const { data: currentStock, error: stockFetchError } = await supabase
                 .from('stock')
                 .select('id, quantity')
-                .in('id', items.map(item => item.product_id));
+                .in('id', productsToDeduct.map(p => p.id));
 
             if (stockFetchError) throw stockFetchError;
 
-            for (const orderItem of items) {
-                const stockProduct = currentStock.find(s => s.id === orderItem.product_id);
-                if (!stockProduct || stockProduct.quantity < orderItem.quantity) {
-                    setError(`Estoque insuficiente para ${orderItem.product_name}. Disponível: ${stockProduct?.quantity || 0}`);
-                    return;
+            for (const deductItem of productsToDeduct) {
+                const stockProduct = currentStock.find(s => s.id === deductItem.id);
+                if (!stockProduct || stockProduct.quantity < deductItem.quantity) {
+                    const productName = products.find(p => p.id === deductItem.id)?.name || "Produto Desconhecido";
+                    setAddFormError(`Estoque insuficiente para ${productName}. Necessário: ${deductItem.quantity}, Disponível: ${stockProduct?.quantity || 0}`);
+                    return; 
                 }
             }
 
@@ -332,6 +441,8 @@ export function OrdersList() {
                     notes: notes || null,
                     total_amount: calculateTotal(),
                     status: "em análise",
+                    delivery_date: deliveryDate, 
+                    delivery_fee: parseFloat(deliveryFee), 
                 })
                 .select()
                 .single();
@@ -340,10 +451,11 @@ export function OrdersList() {
 
             const orderItemsToInsert = items.map(item => ({
                 order_id: orderData.id,
-                product_id: item.product_id,
-                product_name: item.product_name,
-                product_price: item.product_price,
+                product_id: item.product_id, 
+                product_name: item.product_name, 
+                product_price: item.product_price, 
                 quantity: item.quantity,
+                is_combo_item: item.is_combo_item, 
             }));
 
             const { error: orderItemsError } = await supabase
@@ -352,34 +464,45 @@ export function OrdersList() {
 
             if (orderItemsError) throw orderItemsError;
 
-            const updatePromises = items.map(async (orderItem) => {
-                const productInCurrentStock = currentStock.find(s => s.id === orderItem.product_id);
-                const newQuantity = (productInCurrentStock?.quantity || 0) - orderItem.quantity;
+            const updateStockPromises = productsToDeduct.map(async (deductItem) => {
+                const stockProduct = currentStock.find(s => s.id === deductItem.id);
+                const newQuantity = (stockProduct?.quantity || 0) - deductItem.quantity;
 
                 const { error: updateError } = await supabase
                     .from('stock')
                     .update({ quantity: newQuantity })
-                    .eq('id', orderItem.product_id);
+                    .eq('id', deductItem.id);
 
                 if (updateError) {
-                    console.error(`Erro ao deduzir estoque para ${orderItem.product_name}:`, updateError);
-                    throw new Error(`Falha ao deduzir estoque para ${orderItem.product_name}`);
+                    console.error(`Erro ao deduzir estoque para ${deductItem.id}:`, updateError);
+                    throw new Error(`Falha ao deduzir estoque para ${deductItem.id}`);
                 }
             });
-            await Promise.all(updatePromises);
+            await Promise.all(updateStockPromises);
 
             setCustomerName("");
             setCustomerPhone("");
             setAddress("");
             setNotes("");
             setItems([]);
-            setSelectedProductId("");
+            setSelectedProductOrComboId("");
             setItemQuantity(1);
+            setDeliveryDate(new Date().toISOString().split('T')[0]);
+            setDeliveryFee("0.00");
             setIsAddDialogOpen(false);
-            setError(null);
+            setAddFormError(null); 
         } catch (err: any) {
             console.error("Erro ao registrar pedido ou deduzir estoque:", err);
-            setError(err.message || "Erro ao registrar pedido ou deduzir estoque.");
+            if (err instanceof Error) {
+                console.error("Nome do erro:", err.name);
+                console.error("Mensagem do erro:", err.message);
+                console.error("Pilha de chamadas (stack):", err.stack);
+            } else if (typeof err === 'object' && err !== null) {
+                console.error("Propriedades do objeto de erro:", JSON.stringify(err, null, 2));
+            } else {
+                console.error("Tipo de erro desconhecido:", err);
+            }
+            setAddFormError(err.message || JSON.stringify(err) || "Erro desconhecido ao registrar pedido ou deduzir estoque.");
         }
     };
 
@@ -387,7 +510,7 @@ export function OrdersList() {
         try {
             const { data: orderDetails, error: fetchOrderDetailsError } = await supabase
                 .from('orders')
-                .select('total_amount, status, items:order_items(product_id, quantity)')
+                .select('total_amount, status, items:order_items(product_id, quantity, is_combo_item)') 
                 .eq('id', orderId)
                 .single();
 
@@ -395,7 +518,7 @@ export function OrdersList() {
 
             const oldStatus = orderDetails.status;
             const orderTotalAmount = orderDetails.total_amount;
-            const orderItems = orderDetails.items;
+            const orderItems = orderDetails.items; 
 
             if (newStatus === "pronto" && oldStatus !== "pronto") {
                 const { data: existingSale, error: checkSaleError } = await supabase
@@ -426,23 +549,56 @@ export function OrdersList() {
                     }
                 }
             } else if (newStatus === "cancelado" && oldStatus !== "cancelado") {
-                const revertStockPromises = orderItems.map(async (item: any) => {
+                const productsToRevert: { id: string; quantity: number }[] = [];
+
+                for (const orderItem of orderItems) {
+                    if (orderItem.is_combo_item) {
+                        const combo = combos.find(c => c.id === orderItem.product_id);
+                        if (combo) {
+                            combo.items.forEach(cItem => {
+                                const existingRevert = productsToRevert.find(p => p.id === cItem.product_id);
+                                if (existingRevert) {
+                                    existingRevert.quantity += cItem.quantity * orderItem.quantity;
+                                } else {
+                                    productsToRevert.push({ id: cItem.product_id, quantity: cItem.quantity * orderItem.quantity });
+                                }
+                            });
+                        } else {
+                            console.warn(`Combo com ID ${orderItem.product_id} não encontrado ao reverter estoque. Estoque não será revertido para este combo.`);
+                        }
+                    } else {
+                        const existingRevert = productsToRevert.find(p => p.id === orderItem.product_id);
+                        if (existingRevert) {
+                            existingRevert.quantity += orderItem.quantity;
+                        } else {
+                            productsToRevert.push({ id: orderItem.product_id, quantity: orderItem.quantity });
+                        }
+                    }
+                }
+
+                const revertStockPromises = productsToRevert.map(async (revertItem) => {
                     const { data: currentStockItem, error: stockError } = await supabase
                         .from('stock')
                         .select('quantity')
-                        .eq('id', item.product_id)
+                        .eq('id', revertItem.id)
                         .single();
 
-                    if (stockError) throw stockError;
+                    if (stockError) {
+                        console.error(`Erro ao buscar estoque para ${revertItem.id} ao reverter:`, stockError);
+                        throw stockError;
+                    }
 
-                    const newQuantity = (currentStockItem?.quantity || 0) + item.quantity;
+                    const newQuantity = (currentStockItem?.quantity || 0) + revertItem.quantity;
 
                     const { error: updateStockError } = await supabase
                         .from('stock')
                         .update({ quantity: newQuantity })
-                        .eq('id', item.product_id);
+                        .eq('id', revertItem.id);
 
-                    if (updateStockError) throw updateStockError;
+                    if (updateStockError) {
+                        console.error(`Erro ao atualizar estoque para ${revertItem.id} ao reverter:`, updateStockError);
+                        throw updateStockError;
+                    }
                 });
                 await Promise.all(revertStockPromises);
 
@@ -517,15 +673,42 @@ export function OrdersList() {
         setIsDetailsDialogOpen(true);
     };
 
+    const formatDateForDisplay = (dateString: string | null) => {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString + 'T00:00:00'); 
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0'); 
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+    };
+
     const formatOrderDate = (dateString: string) => {
         const date = new Date(dateString);
-        return date.toLocaleDateString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0'); 
+        const year = date.getFullYear();
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${day}/${month}/${year}, ${hours}:${minutes}`;
+    };
+
+    const getWazeLink = (address: string | null) => {
+        if (!address) return '#';
+        const encodedAddress = encodeURIComponent(address);
+        return `https://www.waze.com/ul?q=${encodedAddress}&navigate=yes`;
+    };
+
+    const getGoogleMapsLink = (address: string | null) => {
+        if (!address) return '#';
+        const encodedAddress = encodeURIComponent(address);
+        return `https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`;
+    };
+
+    const handleAddressClick = (address: string | null) => {
+        if (address) {
+            setAddressToNavigate(address);
+            setIsMapSelectionDialogOpen(true);
+        }
     };
 
     return (
@@ -576,6 +759,11 @@ export function OrdersList() {
                                 <DialogDescription>Registre um novo pedido no sistema</DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-6 py-4 overflow-y-auto max-h-[70vh] pr-4">
+                                {addFormError && (
+                                    <div className="bg-red-100 text-red-700 p-3 rounded-md text-sm">
+                                        {addFormError}
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="name">Nome do Cliente</Label>
@@ -591,11 +779,11 @@ export function OrdersList() {
                                         <Label htmlFor="phone">Telefone</Label>
                                         <Input
                                             id="phone"
-                                            placeholder="(00) 00000-0000"
+                                            placeholder="(000) 000-0000" 
                                             value={customerPhone}
                                             onChange={handlePhoneChange}
                                             required
-                                        />
+                                                                                    />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
@@ -609,16 +797,43 @@ export function OrdersList() {
                                     />
                                 </div>
                                 <div className="space-y-2">
+                                    <Label htmlFor="deliveryDate">Data de Entrega</Label>
+                                    <Input
+                                        id="deliveryDate"
+                                        type="date"
+                                        value={deliveryDate}
+                                        onChange={(e) => setDeliveryDate(e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="deliveryFee">Taxa de Entrega ($)</Label>
+                                    <Input
+                                        id="deliveryFee"
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={deliveryFee}
+                                        onChange={(e) => setDeliveryFee(e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
                                     <Label>Itens do Pedido</Label>
                                     <div className="flex flex-wrap items-center gap-2 w-full">
-                                        <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                                        <Select value={selectedProductOrComboId} onValueChange={setSelectedProductOrComboId}>
                                             <SelectTrigger className="flex-1 min-w-[180px]">
-                                                <SelectValue placeholder="Selecione um produto" />
+                                                <SelectValue placeholder="Selecione um produto ou combo" />
                                             </SelectTrigger>
                                             <SelectContent>
+                                                <p className="px-4 py-2 text-sm font-semibold text-muted-foreground">Produtos</p>
                                                 {products.map((product) => (
                                                     <SelectItem key={product.id} value={product.id} disabled={(product.quantity || 0) <= 0}>
                                                         {product.name} - $ {product.price.toFixed(2)} ({product.quantity !== undefined ? `${product.quantity} no estoque` : '...'})
+                                                    </SelectItem>
+                                                ))}
+                                                <p className="px-4 py-2 text-sm font-semibold text-muted-foreground">Combos</p>
+                                                {combos.map((combo) => (
+                                                    <SelectItem key={combo.id} value={combo.id}>
+                                                        {combo.name} - $ {combo.price.toFixed(2)}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -638,7 +853,7 @@ export function OrdersList() {
                                                 type="number"
                                                 min="1"
                                                 value={itemQuantity}
-                                                onChange={handleItemQuantityChange}
+                                                onChange={(e) => setItemQuantity(parseInt(e.target.value) || 1)} 
                                                 className="w-16 text-center h-10 rounded-none border border-l-0 border-r-0"
                                             />
                                             <Button
@@ -651,7 +866,7 @@ export function OrdersList() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <Button type="button" onClick={addItem} disabled={!selectedProductId || itemQuantity <= 0} className="w-full sm:w-auto">
+                                        <Button type="button" onClick={addItem} disabled={!selectedProductOrComboId || itemQuantity <= 0} className="w-full sm:w-auto">
                                             Adicionar
                                         </Button>
                                     </div>
@@ -665,6 +880,7 @@ export function OrdersList() {
                                                     <div>
                                                         <span className="font-medium">{item.quantity}x </span>
                                                         {item.product_name}
+                                                        {item.is_combo_item && <span className="text-xs text-muted-foreground ml-1">(Combo)</span>}
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         <div className="text-sm">$ {(item.product_price * item.quantity).toFixed(2)}</div>
@@ -680,8 +896,18 @@ export function OrdersList() {
                                                 </div>
                                             ))}
                                             <div className="flex justify-between items-center pt-2 font-bold">
-                                                <div>Total</div>
+                                                <div>Subtotal</div>
                                                 <div>$ {calculateTotal().toFixed(2)}</div>
+                                            </div>
+                                            {parseFloat(deliveryFee) > 0 && (
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <div>Taxa de Entrega</div>
+                                                    <div>$ {parseFloat(deliveryFee).toFixed(2)}</div>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between items-center pt-2 font-bold text-lg">
+                                                <div>Total Geral</div>
+                                                <div>$ {(calculateTotal()).toFixed(2)}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -719,25 +945,26 @@ export function OrdersList() {
                             <TableHead>Itens</TableHead>
                             <TableHead>Total</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Entrega</TableHead> 
                             <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
+                                <TableCell colSpan={8} className="h-24 text-center">
                                     Carregando pedidos...
                                 </TableCell>
                             </TableRow>
                         ) : error ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center text-red-500">
+                                <TableCell colSpan={8} className="h-24 text-center text-red-500"> 
                                     {error}
                                 </TableCell>
                             </TableRow>
                         ) : filteredOrders.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
+                                <TableCell colSpan={8} className="h-24 text-center"> 
                                     Nenhum pedido encontrado.
                                 </TableCell>
                             </TableRow>
@@ -756,6 +983,9 @@ export function OrdersList() {
                                             {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                                         </Badge>
                                     </TableCell>
+                                    <TableCell>
+                                        {formatDateForDisplay(order.delivery_date)}
+                                    </TableCell> 
                                     <TableCell className="text-right flex items-center justify-end gap-2">
                                         <Button
                                             variant="outline"
@@ -815,31 +1045,58 @@ export function OrdersList() {
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Endereço de Entrega:</Label>
-                                <p className="text-base">{selectedOrderDetails.address || 'Não informado'}</p>
+                                {selectedOrderDetails.address ? (
+                                    <p
+                                        className="text-base text-blue-600 hover:underline cursor-pointer"
+                                        onClick={() => handleAddressClick(selectedOrderDetails.address)}
+                                    >
+                                        {selectedOrderDetails.address}
+                                    </p>
+                                ) : (
+                                    <p className="text-base">Não informado</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Itens do Pedido:</Label>
                                 <ul className="list-disc pl-5">
                                     {selectedOrderDetails.items.map((item, index) => (
                                         <li key={index} className="text-base">
-                                            {item.quantity}x {item.product_name} - $ {(item.product_price * item.quantity).toFixed(2)}
+                                            {item.is_combo_item ? (
+                                                <>
+                                                    <span className="font-medium">{item.quantity}x {item.product_name}</span>
+                                                    <ul className="list-disc pl-5 text-sm text-muted-foreground">
+                                                        {combos.find(c => c.id === item.product_id)?.items.map((comboPart, idx) => (
+                                                            <li key={idx}>
+                                                                {comboPart.quantity}x {products.find(p => p.id === comboPart.product_id)?.name || 'Produto Desconhecido'}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="font-medium">{item.quantity}x {item.product_name}</span>
+                                                    - $ {(item.product_price * item.quantity).toFixed(2)}
+                                                </>
+                                            )}
                                         </li>
                                     ))}
                                 </ul>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Taxa de Entrega:</Label>
+                                <p className="text-base">$ {selectedOrderDetails.delivery_fee.toFixed(2)}</p>
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Total do Pedido:</Label>
                                 <p className="text-lg font-bold">$ {selectedOrderDetails.total_amount.toFixed(2)}</p>
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-sm font-medium">Status:</Label>
-                                <Badge variant="outline" className={statusColors[selectedOrderDetails.status]}>
-                                    {selectedOrderDetails.status.charAt(0).toUpperCase() + selectedOrderDetails.status.slice(1)}
-                                </Badge>
-                            </div>
-                            <div className="space-y-2">
                                 <Label className="text-sm font-medium">Data do Pedido:</Label>
                                 <p className="text-base">{formatOrderDate(selectedOrderDetails.created_at)}</p>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Data de Entrega:</Label>
+                                <p className="text-base">{formatDateForDisplay(selectedOrderDetails.delivery_date)}</p>
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Observações:</Label>
@@ -849,6 +1106,39 @@ export function OrdersList() {
                     )}
                     <DialogFooter>
                         <Button onClick={() => setIsDetailsDialogOpen(false)}>Fechar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isMapSelectionDialogOpen} onOpenChange={setIsMapSelectionDialogOpen}>
+                <DialogContent className="max-w-xs w-[90%]">
+                    <DialogHeader>
+                        <DialogTitle>Abrir Endereço</DialogTitle>
+                        <DialogDescription>Como você gostaria de abrir o endereço?</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <Button
+                            onClick={() => {
+                                window.open(getWazeLink(addressToNavigate), "_blank");
+                                setIsMapSelectionDialogOpen(false);
+                            }}
+                            className="bg-blue-500 text-white hover:bg-blue-600"
+                        >
+                            Abrir no Waze
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                window.open(getGoogleMapsLink(addressToNavigate), "_blank");
+                                setIsMapSelectionDialogOpen(false);
+                            }}
+                            className="bg-green-500 text-white hover:bg-green-600"
+                        >
+                            Abrir no Maps
+                        </Button>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsMapSelectionDialogOpen(false)}>
+                            Cancelar
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
