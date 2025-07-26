@@ -83,6 +83,13 @@ export function OrdersList() {
     const [error, setError] = useState<string | null>(null);
     const [addFormError, setAddFormError] = useState<string | null>(null);
 
+    const getTodayDateLocal = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
 
     const [customerName, setCustomerName] = useState("");
     const [customerPhone, setCustomerPhone] = useState("");
@@ -91,7 +98,7 @@ export function OrdersList() {
     const [items, setItems] = useState<OrderItem[]>([]); 
     const [selectedProductOrComboId, setSelectedProductOrComboId] = useState<string>(""); 
     const [itemQuantity, setItemQuantity] = useState(1);
-    const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
+    const [deliveryDate, setDeliveryDate] = useState(getTodayDateLocal()); 
     const [deliveryFee, setDeliveryFee] = useState("0.00"); 
 
     const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -102,6 +109,15 @@ export function OrdersList() {
 
 
     const supabase = createClientComponentClient();
+
+    const getUserId = useCallback(async () => {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+            console.error("Erro ao obter sessão do usuário:", sessionError);
+            return null;
+        }
+        return session?.user?.id || null;
+    }, [supabase]);
 
     const fetchProductsAndCombos = useCallback(async () => {
         try {
@@ -487,7 +503,7 @@ export function OrdersList() {
             setItems([]);
             setSelectedProductOrComboId("");
             setItemQuantity(1);
-            setDeliveryDate(new Date().toISOString().split('T')[0]);
+            setDeliveryDate(getTodayDateLocal()); 
             setDeliveryFee("0.00");
             setIsAddDialogOpen(false);
             setAddFormError(null); 
@@ -508,6 +524,12 @@ export function OrdersList() {
 
     const updateOrderStatus = async (orderId: number, newStatus: OrderStatus) => {
         try {
+            const userId = await getUserId(); 
+            if (!userId) {
+                setError("Usuário não autenticado. Por favor, faça login.");
+                return;
+            }
+
             const { data: orderDetails, error: fetchOrderDetailsError } = await supabase
                 .from('orders')
                 .select('total_amount, status, items:order_items(product_id, quantity, is_combo_item)') 
@@ -521,32 +543,20 @@ export function OrdersList() {
             const orderItems = orderDetails.items; 
 
             if (newStatus === "pronto" && oldStatus !== "pronto") {
-                const { data: existingSale, error: checkSaleError } = await supabase
+                const { error: insertFinancialError } = await supabase
                     .from('financial_transactions')
-                    .select('id')
-                    .eq('order_id', orderId)
-                    .eq('type', 'receita')
-                    .single();
+                    .insert({
+                        transaction_date: new Date().toISOString().split('T')[0], 
+                        description: `Venda do Pedido ${formatOrderId(orderId)}`,
+                        category: 'venda',
+                        amount: orderTotalAmount,
+                        type: 'receita',
+                        order_id: orderId,
+                        user_id: userId, 
+                    });
 
-                if (checkSaleError && checkSaleError.code !== 'PGRST116') {
-                    console.error("Erro ao verificar transação de venda existente:", checkSaleError);
-                }
-
-                if (!existingSale) {
-                    const { error: insertFinancialError } = await supabase
-                        .from('financial_transactions')
-                        .insert({
-                            transaction_date: new Date().toISOString().split('T')[0],
-                            description: `Venda do Pedido ${formatOrderId(orderId)}`,
-                            category: 'venda',
-                            amount: orderTotalAmount,
-                            type: 'receita',
-                            order_id: orderId,
-                        });
-
-                    if (insertFinancialError) {
-                        console.error("Erro ao registrar transação de venda:", insertFinancialError);
-                    }
+                if (insertFinancialError) {
+                    console.error("Erro ao registrar transação de venda:", insertFinancialError);
                 }
             } else if (newStatus === "cancelado" && oldStatus !== "cancelado") {
                 const productsToRevert: { id: string; quantity: number }[] = [];
@@ -608,9 +618,10 @@ export function OrdersList() {
                         transaction_date: new Date().toISOString().split('T')[0],
                         description: `Cancelamento do Pedido ${formatOrderId(orderId)}`,
                         category: 'venda',
-                        amount: -orderTotalAmount,
-                        type: 'receita',
+                        amount: -orderTotalAmount, 
+                        type: 'receita', 
                         order_id: orderId,
+                        user_id: userId, 
                     });
 
                 if (insertCancelTransactionError) {
@@ -783,7 +794,7 @@ export function OrdersList() {
                                             value={customerPhone}
                                             onChange={handlePhoneChange}
                                             required
-                                                                                    />
+                                        />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
@@ -1077,7 +1088,7 @@ export function OrdersList() {
                                                     <span className="font-medium">{item.quantity}x {item.product_name}</span>
                                                     - $ {(item.product_price * item.quantity).toFixed(2)}
                                                 </>
-                                            )}
+                                                            )}
                                         </li>
                                     ))}
                                 </ul>

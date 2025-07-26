@@ -116,7 +116,6 @@ export function UserNav() {
     const [isRemovingAvatar, setIsRemovingAvatar] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Estados para o Cropper
     const [imageSrc, setImageSrc] = useState<string | null>(null);
     const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
@@ -127,13 +126,15 @@ export function UserNav() {
     const avatarFileInputRef = useRef<HTMLInputElement>(null);
 
     const formatPhoneNumber = (value: string) => {
-        const numericValue = value.replace(/\D/g, "");
-        if (numericValue.length <= 2) {
+        const numericValue = value.replace(/\D/g, ""); 
+        if (numericValue.length <= 3) {
             return numericValue;
-        } else if (numericValue.length <= 7) {
-            return `(${numericValue.slice(0, 2)}) ${numericValue.slice(2)}`;
+        } else if (numericValue.length <= 6) {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3)}`;
+        } else if (numericValue.length <= 10) {
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
         } else {
-            return `(${numericValue.slice(0, 2)}) ${numericValue.slice(2, 7)}-${numericValue.slice(7, 11)}`;
+            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
         }
     };
 
@@ -152,7 +153,7 @@ export function UserNav() {
                 console.error('Erro ao buscar usuário autenticado:', authError);
                 setError(authError.message);
                 setUser(null);
-                setUserProfile({ name: "Erro", email: "erro@email.com", phone: null, bio: null, avatar_url: null });
+                setUserProfile({ name: "Carregando...", email: "carregando@email.com", phone: null, bio: null, avatar_url: null });
                 return;
             }
 
@@ -177,7 +178,7 @@ export function UserNav() {
                     setUserProfile({
                         name: profileData.name || authUser.email?.split('@')[0] || "Usuário",
                         email: authUser.email || "N/A",
-                        phone: profileData.phone,
+                        phone: profileData.phone ? formatPhoneNumber(profileData.phone) : null, 
                         bio: profileData.bio,
                         avatar_url: profileData.avatar_url,
                     });
@@ -247,7 +248,7 @@ export function UserNav() {
                 .from('profiles')
                 .update({
                     name: userProfile.name,
-                    phone: userProfile.phone,
+                    phone: userProfile.phone ? userProfile.phone.replace(/\D/g, '') : null, 
                     bio: userProfile.bio,
                 })
                 .eq('id', user.id);
@@ -259,7 +260,7 @@ export function UserNav() {
             }
 
             setIsSettingsOpen(false);
-            await fetchUserAndProfile();
+            await fetchUserAndProfile(); 
         } catch (err: any) {
             console.error('Erro inesperado ao salvar perfil:', err);
             setError(err.message || "Erro ao salvar alterações.");
@@ -557,6 +558,7 @@ export function UserNav() {
                                         name="phone"
                                         value={userProfile.phone || ''}
                                         onChange={handlePhoneInputChange}
+                                        placeholder="(000) 000-0000" 
                                     />
                                 </div>
                                 <div className="space-y-2">
