@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Plus, Minus, RefreshCw, Eye, Trash2 } from "lucide-react"
+import { Search, Plus, Minus, RefreshCw, Eye, Trash2, Edit } from "lucide-react" 
 import {
     Dialog,
     DialogContent,
@@ -68,6 +68,7 @@ interface Order {
     status: OrderStatus;
     created_at: string;
     delivery_date: string | null; 
+    delivery_time: string | null; 
     delivery_fee: number; 
     items: OrderItem[];
 }
@@ -82,6 +83,21 @@ export function OrdersList() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [addFormError, setAddFormError] = useState<string | null>(null);
+
+    const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+    const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+    const [editCustomerName, setEditCustomerName] = useState("");
+    const [editCustomerPhone, setEditCustomerPhone] = useState("");
+    const [editAddress, setEditAddress] = useState("");
+    const [editNotes, setEditNotes] = useState("");
+    const [editItems, setEditItems] = useState<OrderItem[]>([]);
+    const [editDeliveryDate, setEditDeliveryDate] = useState("");
+    const [editDeliveryTime, setEditDeliveryTime] = useState(""); 
+    const [editDeliveryFee, setEditDeliveryFee] = useState("0.00");
+    const [editSelectedProductOrComboId, setEditSelectedProductOrComboId] = useState<string>("");
+    const [editItemQuantity, setEditItemQuantity] = useState(1);
+    const [editFormError, setEditFormError] = useState<string | null>(null);
+
 
     const getTodayDateLocal = () => {
         const today = new Date();
@@ -99,6 +115,7 @@ export function OrdersList() {
     const [selectedProductOrComboId, setSelectedProductOrComboId] = useState<string>(""); 
     const [itemQuantity, setItemQuantity] = useState(1);
     const [deliveryDate, setDeliveryDate] = useState(getTodayDateLocal()); 
+    const [deliveryTime, setDeliveryTime] = useState("12:00"); 
     const [deliveryFee, setDeliveryFee] = useState("0.00"); 
 
     const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -190,6 +207,7 @@ export function OrdersList() {
                     status: order.status as OrderStatus,
                     created_at: order.created_at,
                     delivery_date: order.delivery_date, 
+                    delivery_time: order.delivery_time || null, 
                     delivery_fee: parseFloat(order.delivery_fee || 0), 
                     items: itemsForOrder,
                 };
@@ -365,9 +383,9 @@ export function OrdersList() {
         setItems(items.filter((_, i) => i !== index));
     };
 
-    const calculateTotal = () => {
-        let total = items.reduce((sum, item) => sum + item.product_price * item.quantity, 0);
-        total += parseFloat(deliveryFee);
+    const calculateTotal = (currentItems: OrderItem[], currentDeliveryFee: string) => {
+        let total = currentItems.reduce((sum, item) => sum + item.product_price * item.quantity, 0);
+        total += parseFloat(currentDeliveryFee);
         return total;
     };
 
@@ -387,6 +405,10 @@ export function OrdersList() {
 
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setCustomerPhone(formatPhoneNumberUS(e.target.value)); 
+    };
+
+    const handleEditPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setEditCustomerPhone(formatPhoneNumberUS(e.target.value));
     };
 
     const formatItemsForDisplay = (orderItems: OrderItem[]) => {
@@ -455,9 +477,10 @@ export function OrdersList() {
                     customer_phone: customerPhone,
                     address: address || null,
                     notes: notes || null,
-                    total_amount: calculateTotal(),
-                    status: "em análise",
-                    delivery_date: deliveryDate, 
+                    total_amount: calculateTotal(items, deliveryFee), 
+                    status: "pronto", 
+                    delivery_date: deliveryDate,
+                    delivery_time: deliveryTime, 
                     delivery_fee: parseFloat(deliveryFee), 
                 })
                 .select()
@@ -496,6 +519,27 @@ export function OrdersList() {
             });
             await Promise.all(updateStockPromises);
 
+            if (orderData.status === "pronto") {
+                const userId = await getUserId();
+                if (userId) {
+                    const { error: insertFinancialError } = await supabase
+                        .from('financial_transactions')
+                        .insert({
+                            transaction_date: orderData.delivery_date, 
+                            description: `Venda do Pedido ${formatOrderId(orderData.id)}`,
+                            category: 'venda',
+                            amount: orderData.total_amount,
+                            type: 'receita',
+                            order_id: orderData.id,
+                            user_id: userId,
+                        });
+                    if (insertFinancialError) {
+                        console.error("Erro ao registrar transação de venda:", insertFinancialError);
+                    }
+                }
+            }
+
+
             setCustomerName("");
             setCustomerPhone("");
             setAddress("");
@@ -504,6 +548,7 @@ export function OrdersList() {
             setSelectedProductOrComboId("");
             setItemQuantity(1);
             setDeliveryDate(getTodayDateLocal()); 
+            setDeliveryTime("12:00");
             setDeliveryFee("0.00");
             setIsAddDialogOpen(false);
             setAddFormError(null); 
@@ -532,7 +577,7 @@ export function OrdersList() {
 
             const { data: orderDetails, error: fetchOrderDetailsError } = await supabase
                 .from('orders')
-                .select('total_amount, status, items:order_items(product_id, quantity, is_combo_item)') 
+                .select('total_amount, status, delivery_date, items:order_items(product_id, quantity, is_combo_item)') 
                 .eq('id', orderId)
                 .single();
 
@@ -540,13 +585,14 @@ export function OrdersList() {
 
             const oldStatus = orderDetails.status;
             const orderTotalAmount = orderDetails.total_amount;
+            const orderDeliveryDate = orderDetails.delivery_date; 
             const orderItems = orderDetails.items; 
 
             if (newStatus === "pronto" && oldStatus !== "pronto") {
                 const { error: insertFinancialError } = await supabase
                     .from('financial_transactions')
                     .insert({
-                        transaction_date: new Date().toISOString().split('T')[0], 
+                        transaction_date: orderDeliveryDate, 
                         description: `Venda do Pedido ${formatOrderId(orderId)}`,
                         category: 'venda',
                         amount: orderTotalAmount,
@@ -615,7 +661,7 @@ export function OrdersList() {
                 const { error: insertCancelTransactionError } = await supabase
                     .from('financial_transactions')
                     .insert({
-                        transaction_date: new Date().toISOString().split('T')[0],
+                        transaction_date: orderDeliveryDate, 
                         description: `Cancelamento do Pedido ${formatOrderId(orderId)}`,
                         category: 'venda',
                         amount: -orderTotalAmount, 
@@ -645,6 +691,304 @@ export function OrdersList() {
             setError(err.message || "Erro ao atualizar status.");
         }
     };
+
+    const openEditDialog = (order: Order) => {
+        setEditingOrder(order);
+        setEditCustomerName(order.customer_name);
+        setEditCustomerPhone(order.customer_phone);
+        setEditAddress(order.address || "");
+        setEditNotes(order.notes || "");
+        setEditItems(order.items);
+        setEditDeliveryDate(order.delivery_date || getTodayDateLocal());
+        setEditDeliveryTime(order.delivery_time || "12:00"); 
+        setEditDeliveryFee(order.delivery_fee.toFixed(2));
+        setEditFormError(null);
+        setIsEditDialogOpen(true);
+    };
+
+    const handleEditItemQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = parseInt(e.target.value);
+        if (!isNaN(value) && value >= 1) {
+            setEditItemQuantity(value);
+        } else if (e.target.value === "") {
+            setEditItemQuantity(1);
+        }
+    };
+
+    const editIncrementQuantity = () => {
+        setEditItemQuantity((prev) => prev + 1);
+    };
+
+    const editDecrementQuantity = () => {
+        setEditItemQuantity((prev) => (prev > 1 ? prev - 1 : 1));
+    };
+
+    const editAddItem = () => {
+        setEditFormError(null);
+        if (!editSelectedProductOrComboId) {
+            setEditFormError("Por favor, selecione um produto ou combo.");
+            return;
+        }
+
+        const product = products.find((p) => p.id === editSelectedProductOrComboId);
+        const combo = combos.find((c) => c.id === editSelectedProductOrComboId);
+
+        if (!product && !combo) {
+            setEditFormError("Produto ou combo selecionado não encontrado.");
+            return;
+        }
+
+        if (product) {
+            if (product.quantity !== undefined && editItemQuantity > product.quantity) {
+                setEditFormError(`Estoque insuficiente para ${product.name}. Disponível: ${product.quantity}`);
+                return;
+            }
+
+            const existingItemIndex = editItems.findIndex((item) => item.product_id === product.id && !item.is_combo_item);
+
+            if (existingItemIndex >= 0) {
+                const updatedItems = [...editItems];
+                const newTotalQuantity = updatedItems[existingItemIndex].quantity + editItemQuantity;
+                if (product.quantity !== undefined && newTotalQuantity > product.quantity) {
+                    setEditFormError(`Estoque insuficiente para ${product.name}. Você já tem ${updatedItems[existingItemIndex].quantity} e quer adicionar ${editItemQuantity}. Disponível total: ${product.quantity}`);
+                    return;
+                }
+                updatedItems[existingItemIndex].quantity = newTotalQuantity;
+                setEditItems(updatedItems);
+            } else {
+                setEditItems([
+                    ...editItems,
+                    {
+                        product_id: product.id,
+                        product_name: product.name,
+                        product_price: product.price,
+                        quantity: editItemQuantity,
+                        is_combo_item: false,
+                    },
+                ]);
+            }
+        } else if (combo) {
+            for (const comboPart of combo.items) {
+                const productInStock = products.find(p => p.id === comboPart.product_id);
+                const requiredQuantity = comboPart.quantity * editItemQuantity;
+
+                if (!productInStock || (productInStock.quantity !== undefined && productInStock.quantity < requiredQuantity)) {
+                    setEditFormError(`Estoque insuficiente para "${productInStock?.name || 'Produto Desconhecido'}" no combo "${combo.name}". Necessário: ${requiredQuantity}, Disponível: ${productInStock?.quantity || 0}`);
+                    return;
+                }
+            }
+
+            setEditItems([
+                ...editItems,
+                {
+                    product_id: combo.id,
+                    product_name: combo.name,
+                    product_price: combo.price,
+                    quantity: editItemQuantity,
+                    is_combo_item: true,
+                },
+            ]);
+        }
+
+        setEditSelectedProductOrComboId("");
+        setEditItemQuantity(1);
+        setEditFormError(null);
+    };
+
+    const editRemoveItem = (index: number) => {
+        setEditItems(editItems.filter((_, i) => i !== index));
+    };
+
+    const updateOrder = async () => {
+        setEditFormError(null);
+        if (!editingOrder) return;
+
+        if (editItems.length === 0 || !editCustomerName || !editCustomerPhone) {
+            setEditFormError("Por favor, preencha o nome do cliente, telefone e adicione pelo menos um item ao pedido.");
+            return;
+        }
+
+        try {
+            const { data: currentOrderItemsDB, error: fetchCurrentItemsError } = await supabase
+                .from('order_items')
+                .select('product_id, quantity, is_combo_item')
+                .eq('order_id', editingOrder.id);
+
+            if (fetchCurrentItemsError) throw fetchCurrentItemsError;
+
+            const currentItemsMap = new Map<string, { quantity: number, is_combo_item: boolean }>();
+            currentOrderItemsDB.forEach(item => {
+                currentItemsMap.set(item.product_id, { quantity: item.quantity, is_combo_item: item.is_combo_item || false });
+            });
+
+            const newItemsMap = new Map<string, { quantity: number, is_combo_item: boolean }>();
+            editItems.forEach(item => {
+                newItemsMap.set(item.product_id, { quantity: item.quantity, is_combo_item: item.is_combo_item || false });
+            });
+
+            const productsToAdjust: { id: string; quantityChange: number }[] = [];
+
+            for (const [productId, newItem] of newItemsMap.entries()) {
+                const currentItem = currentItemsMap.get(productId);
+                if (currentItem) {
+                    const quantityDiff = newItem.quantity - currentItem.quantity;
+                    if (quantityDiff !== 0) {
+                        if (newItem.is_combo_item) {
+                            const combo = combos.find(c => c.id === productId);
+                            if (combo) {
+                                combo.items.forEach(cItem => {
+                                    productsToAdjust.push({ id: cItem.product_id, quantityChange: cItem.quantity * quantityDiff });
+                                });
+                            }
+                        } else {
+                            productsToAdjust.push({ id: productId, quantityChange: quantityDiff });
+                        }
+                    }
+                } else {
+                    if (newItem.is_combo_item) {
+                        const combo = combos.find(c => c.id === productId);
+                        if (combo) {
+                            combo.items.forEach(cItem => {
+                                productsToAdjust.push({ id: cItem.product_id, quantityChange: cItem.quantity * newItem.quantity });
+                            });
+                        }
+                    } else {
+                        productsToAdjust.push({ id: productId, quantityChange: newItem.quantity });
+                    }
+                }
+            }
+
+            for (const [productId, currentItem] of currentItemsMap.entries()) {
+                if (!newItemsMap.has(productId)) {
+                    if (currentItem.is_combo_item) {
+                        const combo = combos.find(c => c.id === productId);
+                        if (combo) {
+                            combo.items.forEach(cItem => {
+                                productsToAdjust.push({ id: cItem.product_id, quantityChange: -cItem.quantity * currentItem.quantity });
+                            });
+                        }
+                    } else {
+                        productsToAdjust.push({ id: productId, quantityChange: -currentItem.quantity });
+                    }
+                }
+            }
+
+            const consolidatedAdjustments = new Map<string, number>();
+            productsToAdjust.forEach(adj => {
+                consolidatedAdjustments.set(adj.id, (consolidatedAdjustments.get(adj.id) || 0) + adj.quantityChange);
+            });
+
+            const productIdsToFetch = Array.from(consolidatedAdjustments.keys());
+            if (productIdsToFetch.length > 0) {
+                const { data: currentStock, error: stockFetchError } = await supabase
+                    .from('stock')
+                    .select('id, quantity')
+                    .in('id', productIdsToFetch);
+
+                if (stockFetchError) throw stockFetchError;
+
+                for (const [productId, change] of consolidatedAdjustments.entries()) {
+                    const stockProduct = currentStock.find(s => s.id === productId);
+                    const currentQuantity = stockProduct?.quantity || 0;
+                    const newCalculatedQuantity = currentQuantity - change; 
+
+                    if (newCalculatedQuantity < 0) {
+                        const productName = products.find(p => p.id === productId)?.name || "Produto Desconhecido";
+                        setEditFormError(`Estoque insuficiente para ${productName}. Necessário: ${-change}, Disponível: ${currentQuantity}`);
+                        return;
+                    }
+                }
+            }
+            
+            const newTotalAmount = calculateTotal(editItems, editDeliveryFee);
+            const { error: updateOrderError } = await supabase
+                .from('orders')
+                .update({
+                    customer_name: editCustomerName,
+                    customer_phone: editCustomerPhone,
+                    address: editAddress || null,
+                    notes: editNotes || null,
+                    total_amount: newTotalAmount,
+                    delivery_date: editDeliveryDate,
+                    delivery_time: editDeliveryTime, 
+                    delivery_fee: parseFloat(editDeliveryFee),
+                })
+                .eq('id', editingOrder.id);
+
+            if (updateOrderError) throw updateOrderError;
+
+            const { error: deleteItemsError } = await supabase
+                .from('order_items')
+                .delete()
+                .eq('order_id', editingOrder.id);
+
+            if (deleteItemsError) throw deleteItemsError;
+
+            const orderItemsToInsert = editItems.map(item => ({
+                order_id: editingOrder.id,
+                product_id: item.product_id,
+                product_name: item.product_name,
+                product_price: item.product_price,
+                quantity: item.quantity,
+                is_combo_item: item.is_combo_item,
+            }));
+
+            const { error: insertItemsError } = await supabase
+                .from('order_items')
+                .insert(orderItemsToInsert);
+
+            if (insertItemsError) throw insertItemsError;
+
+            const updateStockPromises = Array.from(consolidatedAdjustments.entries()).map(async ([productId, change]) => {
+                const { data: stockProduct, error: fetchStockError } = await supabase
+                    .from('stock')
+                    .select('quantity')
+                    .eq('id', productId)
+                    .single();
+
+                if (fetchStockError) throw fetchStockError;
+
+                const newQuantity = (stockProduct?.quantity || 0) - change;
+                const { error: updateError } = await supabase
+                    .from('stock')
+                    .update({ quantity: newQuantity })
+                    .eq('id', productId);
+
+                if (updateError) {
+                    console.error(`Erro ao atualizar estoque para ${productId}:`, updateError);
+                    throw new Error(`Falha ao atualizar estoque para ${productId}`);
+                }
+            });
+            await Promise.all(updateStockPromises);
+
+            if (editingOrder.status === "pronto") {
+                const userId = await getUserId();
+                if (userId) {
+                    const { error: updateFinancialError } = await supabase
+                        .from('financial_transactions')
+                        .update({
+                            transaction_date: editDeliveryDate, 
+                            amount: newTotalAmount,
+                        })
+                        .eq('order_id', editingOrder.id)
+                        .eq('user_id', userId);
+
+                    if (updateFinancialError) {
+                        console.error("Erro ao atualizar transação financeira:", updateFinancialError);
+                    }
+                }
+            }
+
+
+            setIsEditDialogOpen(false);
+            setEditingOrder(null);
+            setEditFormError(null);
+        } catch (err: any) {
+            console.error("Erro ao atualizar pedido:", err);
+            setEditFormError(err.message || "Erro ao atualizar pedido.");
+        }
+    };
+
 
     const handleDeleteOrder = async (orderId: number) => {
         if (!confirm("Tem certeza que deseja excluir este pedido? Esta ação é irreversível e não reverte o estoque nem o faturamento.")) {
@@ -807,14 +1151,25 @@ export function OrdersList() {
                                         rows={2}
                                     />
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="deliveryDate">Data de Entrega</Label>
-                                    <Input
-                                        id="deliveryDate"
-                                        type="date"
-                                        value={deliveryDate}
-                                        onChange={(e) => setDeliveryDate(e.target.value)}
-                                    />
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="deliveryDate">Data de Entrega</Label>
+                                        <Input
+                                            id="deliveryDate"
+                                            type="date"
+                                            value={deliveryDate}
+                                            onChange={(e) => setDeliveryDate(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="deliveryTime">Hora de Entrega</Label>
+                                        <Input
+                                            id="deliveryTime"
+                                            type="time"
+                                            value={deliveryTime}
+                                            onChange={(e) => setDeliveryTime(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="deliveryFee">Taxa de Entrega ($)</Label>
@@ -908,7 +1263,7 @@ export function OrdersList() {
                                             ))}
                                             <div className="flex justify-between items-center pt-2 font-bold">
                                                 <div>Subtotal</div>
-                                                <div>$ {calculateTotal().toFixed(2)}</div>
+                                                <div>$ {calculateTotal(items, deliveryFee).toFixed(2)}</div>
                                             </div>
                                             {parseFloat(deliveryFee) > 0 && (
                                                 <div className="flex justify-between items-center text-sm">
@@ -918,7 +1273,7 @@ export function OrdersList() {
                                             )}
                                             <div className="flex justify-between items-center pt-2 font-bold text-lg">
                                                 <div>Total Geral</div>
-                                                <div>$ {(calculateTotal()).toFixed(2)}</div>
+                                                <div>$ {calculateTotal(items, deliveryFee).toFixed(2)}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -995,7 +1350,7 @@ export function OrdersList() {
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        {formatDateForDisplay(order.delivery_date)}
+                                        {order.delivery_date && order.delivery_time ? `${formatDateForDisplay(order.delivery_date)} ${order.delivery_time}` : formatDateForDisplay(order.delivery_date)}
                                     </TableCell> 
                                     <TableCell className="text-right flex items-center justify-end gap-2">
                                         <Button
@@ -1004,6 +1359,13 @@ export function OrdersList() {
                                             onClick={() => openOrderDetailsDialog(order)}
                                         >
                                             <Eye className="h-3 w-3 mr-1" /> Detalhes
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => openEditDialog(order)} 
+                                        >
+                                            <Edit className="h-3 w-3 mr-1" /> Editar
                                         </Button>
                                         <Select
                                             value={order.status}
@@ -1107,7 +1469,7 @@ export function OrdersList() {
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Data de Entrega:</Label>
-                                <p className="text-base">{formatDateForDisplay(selectedOrderDetails.delivery_date)}</p>
+                                <p className="text-base">{selectedOrderDetails.delivery_date && selectedOrderDetails.delivery_time ? `${formatDateForDisplay(selectedOrderDetails.delivery_date)} ${selectedOrderDetails.delivery_time}` : formatDateForDisplay(selectedOrderDetails.delivery_date)}</p>
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Observações:</Label>
@@ -1149,6 +1511,199 @@ export function OrdersList() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsMapSelectionDialogOpen(false)}>
                             Cancelar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                <DialogContent className="max-w-3xl w-[90%]">
+                    <DialogHeader>
+                        <DialogTitle>Editar Pedido: {editingOrder ? formatOrderId(editingOrder.id) : ''}</DialogTitle>
+                        <DialogDescription>Edite os detalhes do pedido.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-6 py-4 overflow-y-auto max-h-[70vh] pr-4">
+                        {editFormError && (
+                            <div className="bg-red-100 text-red-700 p-3 rounded-md text-sm">
+                                {editFormError}
+                            </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="editName">Nome do Cliente</Label>
+                                <Input
+                                    id="editName"
+                                    placeholder="Nome completo"
+                                    value={editCustomerName}
+                                    onChange={(e) => setEditCustomerName(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="editPhone">Telefone</Label>
+                                <Input
+                                    id="editPhone"
+                                    type="text" 
+                                    placeholder="(000) 000-0000"
+                                    value={editCustomerPhone}
+                                    onChange={handleEditPhoneChange}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="editAddress">Endereço de Entrega (opcional)</Label>
+                            <Textarea
+                                id="editAddress"
+                                placeholder="Endereço completo"
+                                value={editAddress}
+                                onChange={(e) => setEditAddress(e.target.value)}
+                                rows={2}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="editDeliveryDate">Data de Entrega</Label>
+                                <Input
+                                    id="editDeliveryDate"
+                                    type="date"
+                                    value={editDeliveryDate}
+                                    onChange={(e) => setEditDeliveryDate(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="editDeliveryTime">Hora de Entrega</Label>
+                                <Input
+                                    id="editDeliveryTime"
+                                    type="time"
+                                    value={editDeliveryTime}
+                                    onChange={(e) => setEditDeliveryTime(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="editDeliveryFee">Taxa de Entrega ($)</Label>
+                            <Input
+                                id="editDeliveryFee"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editDeliveryFee}
+                                onChange={(e) => setEditDeliveryFee(e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Itens do Pedido</Label>
+                            <div className="flex flex-wrap items-center gap-2 w-full">
+                                <Select value={editSelectedProductOrComboId} onValueChange={setEditSelectedProductOrComboId}>
+                                    <SelectTrigger className="flex-1 min-w-[180px]">
+                                        <SelectValue placeholder="Selecione um produto ou combo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <p className="px-4 py-2 text-sm font-semibold text-muted-foreground">Produtos</p>
+                                        {products.map((product) => (
+                                            <SelectItem key={product.id} value={product.id} disabled={(product.quantity || 0) <= 0}>
+                                                {product.name} - $ {product.price.toFixed(2)} ({product.quantity !== undefined ? `${product.quantity} no estoque` : '...'})
+                                            </SelectItem>
+                                        ))}
+                                        <p className="px-4 py-2 text-sm font-semibold text-muted-foreground">Combos</p>
+                                        {combos.map((combo) => (
+                                            <SelectItem key={combo.id} value={combo.id}>
+                                                {combo.name} - $ {combo.price.toFixed(2)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <div className="flex items-center flex-shrink-0">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={editDecrementQuantity}
+                                        disabled={editItemQuantity <= 1}
+                                        className="h-10 w-10 rounded-r-none"
+                                    >
+                                        <Minus className="h-4 w-4" />
+                                    </Button>
+                                    <Input
+                                        type="number"
+                                        min="1"
+                                        value={editItemQuantity}
+                                        onChange={(e) => setEditItemQuantity(parseInt(e.target.value) || 1)}
+                                        className="w-16 text-center h-10 rounded-none border border-l-0 border-r-0"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={editIncrementQuantity}
+                                        className="h-10 w-10 rounded-l-none"
+                                    >
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <Button type="button" onClick={editAddItem} disabled={!editSelectedProductOrComboId || editItemQuantity <= 0} className="w-full sm:w-auto">
+                                    Adicionar
+                                </Button>
+                            </div>
+                        </div>
+                        {editItems.length > 0 && (
+                            <div className="space-y-2 border rounded-md p-4">
+                                <Label>Itens Atuais</Label>
+                                <div className="space-y-2">
+                                    {editItems.map((item, index) => (
+                                        <div key={index} className="flex justify-between items-center border-b pb-2">
+                                            <div>
+                                                <span className="font-medium">{item.quantity}x </span>
+                                                {item.product_name}
+                                                {item.is_combo_item && <span className="text-xs text-muted-foreground ml-1">(Combo)</span>}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-sm">$ {(item.product_price * item.quantity).toFixed(2)}</div>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-red-500"
+                                                    onClick={() => editRemoveItem(index)}
+                                                >
+                                                    ✕
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-between items-center pt-2 font-bold">
+                                        <div>Subtotal</div>
+                                        <div>$ {calculateTotal(editItems, editDeliveryFee).toFixed(2)}</div>
+                                    </div>
+                                    {parseFloat(editDeliveryFee) > 0 && (
+                                        <div className="flex justify-between items-center text-sm">
+                                            <div>Taxa de Entrega</div>
+                                            <div>$ {parseFloat(editDeliveryFee).toFixed(2)}</div>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between items-center pt-2 font-bold text-lg">
+                                        <div>Total Geral</div>
+                                        <div>$ {calculateTotal(editItems, editDeliveryFee).toFixed(2)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="editNotes">Observações (opcional)</Label>
+                            <Textarea
+                                id="editNotes"
+                                placeholder="Observações sobre o pedido"
+                                value={editNotes}
+                                onChange={(e) => setEditNotes(e.target.value)}
+                                rows={2}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={updateOrder}>
+                            Salvar Alterações
                         </Button>
                     </DialogFooter>
                 </DialogContent>

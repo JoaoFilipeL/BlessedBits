@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Plus, RefreshCw, Trash2, Minus, Eye } from "lucide-react" 
+import { Search, Plus, RefreshCw, Trash2, Minus, Eye, Edit } from "lucide-react" 
 import {
     Dialog,
     DialogContent,
@@ -76,6 +76,16 @@ export function StockTable() {
     const [productQuantityForCombo, setProductQuantityForCombo] = useState(1); 
     const [isComboDetailsDialogOpen, setIsComboDetailsDialogOpen] = useState(false); 
     const [selectedComboDetails, setSelectedComboDetails] = useState<ProductCombo | null>(null); 
+
+    const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
+    const [editingProduct, setEditingProduct] = useState<StockItem | null>(null);
+    const [editProductName, setEditProductName] = useState("");
+    const [editProductQuantity, setEditProductQuantity] = useState("");
+    const [editProductUnit, setEditProductUnit] = useState("un");
+    const [editProductMinQuantity, setEditProductMinQuantity] = useState("");
+    const [editProductPrice, setEditProductPrice] = useState("");
+    const [editProductCategory, setEditProductCategory] = useState("salgado");
+    const [editProductFormError, setEditProductFormError] = useState<string | null>(null);
 
 
     const supabase = createClientComponentClient();
@@ -339,6 +349,59 @@ export function StockTable() {
         setUpdateQuantity(item.quantity.toString());
         setIsUpdateDialogOpen(true);
     };
+
+    const openEditProductDialog = (product: StockItem) => {
+        setEditingProduct(product);
+        setEditProductName(product.name);
+        setEditProductQuantity(product.quantity.toString());
+        setEditProductUnit(product.unit);
+        setEditProductMinQuantity(product.minQuantity.toString());
+        setEditProductPrice(product.price.toFixed(2));
+        setEditProductCategory(product.category);
+        setEditProductFormError(null);
+        setIsEditProductDialogOpen(true);
+    };
+
+    const updateProduct = async () => {
+        if (!editingProduct) return;
+
+        const quantity = Number.parseFloat(editProductQuantity);
+        const minQuantity = Number.parseFloat(editProductMinQuantity);
+        const price = Number.parseFloat(editProductPrice);
+
+        if (!editProductName || isNaN(quantity) || isNaN(minQuantity) || isNaN(price) || quantity < 0 || minQuantity < 0 || price < 0 || !editProductCategory) {
+            setEditProductFormError("Por favor, preencha todos os campos corretamente e com valores válidos.");
+            return;
+        }
+
+        try {
+            const { error } = await supabase
+                .from('stock')
+                .update({
+                    name: editProductName,
+                    quantity: quantity,
+                    unit: editProductUnit,
+                    min_quantity: minQuantity,
+                    price: price,
+                    category: editProductCategory,
+                })
+                .eq('id', editingProduct.id);
+
+            if (error) {
+                console.error("Erro ao atualizar produto:", error);
+                setEditProductFormError(error.message);
+                return;
+            }
+
+            setIsEditProductDialogOpen(false);
+            setEditingProduct(null);
+            setEditProductFormError(null);
+        } catch (err: any) {
+            console.error("Erro inesperado ao atualizar produto:", err);
+            setEditProductFormError(err.message || "Erro ao atualizar produto.");
+        }
+    };
+
 
     const addProductToCombo = () => {
         if (!selectedProductForCombo || productQuantityForCombo <= 0) {
@@ -678,6 +741,14 @@ export function StockTable() {
                                             Atualizar
                                         </Button>
                                         <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => openEditProductDialog(item)} 
+                                        >
+                                            <Edit className="mr-2 h-3 w-3" />
+                                            Editar
+                                        </Button>
+                                        <Button
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => handleDeleteProduct(item.id)}
@@ -809,6 +880,98 @@ export function StockTable() {
                             Cancelar
                         </Button>
                         <Button onClick={updateItemQuantity}>Atualizar</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isEditProductDialogOpen} onOpenChange={setIsEditProductDialogOpen}>
+                <DialogContent className="max-w-md w-[90%]">
+                    <DialogHeader>
+                        <DialogTitle>Editar Produto: {editingProduct?.name}</DialogTitle>
+                        <DialogDescription>Edite os detalhes do produto.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4 overflow-y-auto max-h-[70vh] pr-4">
+                        {editProductFormError && (
+                            <div className="bg-red-100 text-red-700 p-3 rounded-md text-sm">
+                                {editProductFormError}
+                            </div>
+                        )}
+                        <div className="grid gap-2">
+                            <Label htmlFor="editProductName">Nome do Produto</Label>
+                            <Input
+                                id="editProductName"
+                                value={editProductName}
+                                onChange={(e) => setEditProductName(e.target.value)}
+                                placeholder="Ex: Coxinha de Frango"
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="editProductQuantity">Quantidade</Label>
+                                <Input
+                                    id="editProductQuantity"
+                                    type="number"
+                                    min="0"
+                                    value={editProductQuantity}
+                                    onChange={(e) => setEditProductQuantity(e.target.value)}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="editProductUnit">Unidade</Label>
+                                <Input
+                                    id="editProductUnit"
+                                    value={editProductUnit}
+                                    onChange={(e) => setEditProductUnit(e.target.value)}
+                                    placeholder="Ex: un"
+                                    disabled
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="editProductMinQuantity">Quantidade Mínima</Label>
+                                <Input
+                                    id="editProductMinQuantity"
+                                    type="number"
+                                    min="0"
+                                    value={editProductMinQuantity}
+                                    onChange={(e) => setEditProductMinQuantity(e.target.value)}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="editProductPrice">Preço ($)</Label>
+                                <Input
+                                    id="editProductPrice"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={editProductPrice}
+                                    onChange={(e) => setEditProductPrice(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="editProductCategory">Categoria</Label>
+                            <Select value={editProductCategory} onValueChange={setEditProductCategory}>
+                                <SelectTrigger id="editProductCategory">
+                                    <SelectValue placeholder="Selecione uma categoria" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="salgado">Salgado</SelectItem>
+                                    <SelectItem value="doce">Doce</SelectItem>
+                                    <SelectItem value="bolo">Bolo</SelectItem>
+                                    <SelectItem value="outros">Outros</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditProductDialogOpen(false)}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={updateProduct}>
+                            Salvar Alterações
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

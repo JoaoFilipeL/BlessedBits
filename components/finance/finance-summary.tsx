@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowDownIcon, ArrowUpIcon, DollarSign, TrendingDown, TrendingUp } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, DollarSign, TrendingDown, TrendingUp, History } from "lucide-react" // Adicionado o ícone History
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
     Dialog,
@@ -42,6 +42,13 @@ interface Receipt {
     user_id: string;
 }
 
+interface MonthlySummary {
+    monthYear: string;
+    totalRevenue: number;
+    totalExpenses: number;
+    netProfit: number;
+}
+
 
 export function FinancialSummary() {
     const [totalRevenue, setTotalRevenue] = useState(0);
@@ -72,6 +79,10 @@ export function FinancialSummary() {
 
     const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+
+    const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+    const [financialHistory, setFinancialHistory] = useState<MonthlySummary[]>([]);
+    const [totalCompanyProfit, setTotalCompanyProfit] = useState(0); 
 
 
     const supabase = createClientComponentClient();
@@ -116,6 +127,46 @@ export function FinancialSummary() {
         setAverageTicket(avgTicket);
     }, []);
 
+    const calculateFinancialHistory = useCallback((transactions: Transaction[]) => {
+        const monthlyData: { [key: string]: { revenue: number, expenses: number } } = {};
+        let overallProfit = 0; 
+
+        transactions.forEach(t => {
+            const date = new Date(t.transaction_date + 'T00:00:00');
+            const monthYear = `${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+
+            if (!monthlyData[monthYear]) {
+                monthlyData[monthYear] = { revenue: 0, expenses: 0 };
+            }
+
+            if (t.type === 'receita') {
+                monthlyData[monthYear].revenue += t.amount;
+                overallProfit += t.amount; 
+            } else if (t.type === 'despesa') {
+                monthlyData[monthYear].expenses += t.amount;
+                overallProfit -= t.amount; 
+            }
+        });
+
+        const history: MonthlySummary[] = Object.keys(monthlyData)
+            .map(key => ({
+                monthYear: key,
+                totalRevenue: monthlyData[key].revenue,
+                totalExpenses: monthlyData[key].expenses,
+                netProfit: monthlyData[key].revenue - monthlyData[key].expenses,
+            }))
+            .sort((a, b) => {
+                const [monthA, yearA] = a.monthYear.split('/').map(Number);
+                const [monthB, yearB] = b.monthYear.split('/').map(Number);
+                if (yearA !== yearB) return yearB - yearA;
+                return monthB - monthA;
+            });
+        
+        setFinancialHistory(history);
+        setTotalCompanyProfit(overallProfit); 
+    }, []);
+
+
     const fetchTransactionsAndReceipts = useCallback(async () => { 
         setLoading(true);
         setError(null);
@@ -148,6 +199,7 @@ export function FinancialSummary() {
                 created_at: item.created_at,
             }));
             calculateSummary(fetchedTransactions);
+            calculateFinancialHistory(fetchedTransactions); 
 
             const { data: receiptsData, error: receiptsError } = await supabase
                 .from('receipt_images')
@@ -169,7 +221,7 @@ export function FinancialSummary() {
         } finally {
             setLoading(false);
         }
-    }, [supabase, calculateSummary, getUserId]);
+    }, [supabase, calculateSummary, calculateFinancialHistory, getUserId]);
 
     useEffect(() => {
         fetchTransactionsAndReceipts(); 
@@ -349,19 +401,74 @@ export function FinancialSummary() {
                             </div>
                         </CardContent>
                     </Card>
-                    <Card className="w-full h-full flex flex-col justify-between"> 
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4"> 
-                            <CardTitle className="text-sm font-medium">Lucro Líquido</CardTitle>
-                            <TrendingUp className="h-5 w-5 text-muted-foreground" /> 
-                        </CardHeader>
-                        <CardContent className="p-4 pt-0"> 
-                            <div className="text-3xl font-bold">$ {netProfit.toFixed(2)}</div> 
-                            <div className="flex items-center pt-1 text-xs text-green-600">
-                                <ArrowUpIcon className="mr-1 h-3 w-3" />
-                                <span>(Dados do mês atual)</span> 
+                    <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Card className="w-full h-full flex flex-col justify-between cursor-pointer hover:bg-gray-50 transition-colors"> 
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4"> 
+                                    <CardTitle className="text-sm font-medium">Lucro Líquido</CardTitle> {/* Título do card */}
+                                    <TrendingUp className="h-5 w-5 text-muted-foreground" /> {/* Ícone do lucro */}
+                                </CardHeader>
+                                <CardContent className="p-4 pt-0"> 
+                                    <div className="text-3xl font-bold">$ {netProfit.toFixed(2)}</div> {/* Lucro do mês atual */}
+                                    <div className="flex items-center pt-1 text-xs text-blue-600">
+                                        <History className="mr-1 h-3 w-3" />
+                                        <span>(Clique para ver o histórico)</span> 
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-xl w-[90%]">
+                            <DialogHeader>
+                                <DialogTitle>Histórico Financeiro Mensal</DialogTitle> 
+                                <DialogDescription>Visão geral de receitas e despesas de meses anteriores.</DialogDescription>
+                            </DialogHeader>
+                            <div className="grid gap-4 py-4 overflow-y-auto max-h-[70vh] pr-4">
+                                <div className="p-4 bg-gray-50 rounded-md shadow-sm">
+                                    <h3 className="text-lg font-semibold">Lucro Líquido Total da Empresa</h3>
+                                    <p className={`text-2xl font-bold ${totalCompanyProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
+                                        $ {totalCompanyProfit.toFixed(2)}
+                                    </p>
+                                </div>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Mês/Ano</TableHead>
+                                            <TableHead className="text-right">Receita Total</TableHead>
+                                            <TableHead className="text-right">Despesas Totais</TableHead>
+                                            <TableHead className="text-right">Lucro Líquido</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {financialHistory.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={4} className="text-center">Nenhum histórico disponível.</TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            financialHistory.map((summary) => (
+                                                <TableRow key={summary.monthYear}>
+                                                    <TableCell>{summary.monthYear}</TableCell>
+                                                    <TableCell className="text-right text-green-600">
+                                                        $ {summary.totalRevenue.toFixed(2)}
+                                                    </TableCell>
+                                                    <TableCell className="text-right text-red-600">
+                                                        $ {summary.totalExpenses.toFixed(2)}
+                                                    </TableCell>
+                                                    <TableCell className="text-right font-bold">
+                                                        <span className={summary.netProfit >= 0 ? "text-green-700" : "text-red-700"}>
+                                                            $ {summary.netProfit.toFixed(2)}
+                                                        </span>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
                             </div>
-                        </CardContent>
-                    </Card>
+                            <DialogFooter>
+                                <Button onClick={() => setIsHistoryDialogOpen(false)}>Fechar</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                     <Dialog open={isManageReceiptsDialogOpen} onOpenChange={setIsManageReceiptsDialogOpen}>
                         <DialogTrigger asChild>
                             <Card className="w-full h-full flex flex-col justify-between cursor-pointer hover:bg-gray-50 transition-colors"> 
@@ -465,25 +572,25 @@ export function FinancialSummary() {
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
+
+                    <Dialog open={isImageViewerOpen} onOpenChange={setIsImageViewerOpen}>
+                        <DialogContent className="max-w-3xl w-[95%] h-[90vh] flex flex-col">
+                            <DialogHeader>
+                                <DialogTitle>Visualizar Recibo</DialogTitle>
+                                <DialogDescription>Visualização do recibo.</DialogDescription>
+                            </DialogHeader>
+                            <div className="flex-grow flex items-center justify-center overflow-hidden">
+                                {currentImageUrl && (
+                                    <img src={currentImageUrl} alt="Recibo" className="max-w-full max-h-full object-contain" />
+                                )}
+                            </div>
+                            <DialogFooter>
+                                <Button onClick={() => setIsImageViewerOpen(false)}>Fechar</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </>
             )}
-
-            <Dialog open={isImageViewerOpen} onOpenChange={setIsImageViewerOpen}>
-                <DialogContent className="max-w-3xl w-[95%] h-[90vh] flex flex-col">
-                    <DialogHeader>
-                        <DialogTitle>Visualizar Recibo</DialogTitle>
-                        <DialogDescription>Visualização do recibo.</DialogDescription>
-                    </DialogHeader>
-                    <div className="flex-grow flex items-center justify-center overflow-hidden">
-                        {currentImageUrl && (
-                            <img src={currentImageUrl} alt="Recibo" className="max-w-full max-h-full object-contain" />
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button onClick={() => setIsImageViewerOpen(false)}>Fechar</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     )
 }

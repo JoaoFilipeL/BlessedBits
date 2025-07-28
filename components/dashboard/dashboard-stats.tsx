@@ -13,6 +13,7 @@ interface Order {
     status: OrderStatus;
     total_amount: number;
     created_at: string;
+    delivery_date: string; 
 }
 
 interface Transaction {
@@ -48,8 +49,9 @@ export function DashboardStats() {
             const tomorrow = new Date(today);
             tomorrow.setDate(today.getDate() + 1);
 
-            const todayISO = today.toISOString();
-            const tomorrowISO = tomorrow.toISOString();
+            const todayFormatted = today.toISOString().split('T')[0];
+            const tomorrowFormatted = tomorrow.toISOString().split('T')[0];
+
 
             const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
             const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0); 
@@ -60,9 +62,9 @@ export function DashboardStats() {
 
             const { data: ordersData, error: ordersError } = await supabase
                 .from('orders')
-                .select('id, status, total_amount, created_at')
-                .gte('created_at', todayISO)
-                .lt('created_at', tomorrowISO);
+                .select('id, status, total_amount, created_at, delivery_date') 
+                .gte('delivery_date', todayFormatted) 
+                .lt('delivery_date', tomorrowFormatted); 
 
             if (ordersError) throw ordersError;
 
