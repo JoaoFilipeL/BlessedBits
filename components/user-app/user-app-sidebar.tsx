@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ClipboardList, Landmark, Menu, PackageSearch, X } from "lucide-react"; // Adicionado X para fechar
+import { ClipboardList, Landmark, Menu, PackageSearch, Users, X } from "lucide-react"; 
 import Link from 'next/link';
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -14,7 +14,7 @@ export function Sidebar({ className, isSidebarOpen, toggleSidebar }: SidebarProp
         <div className={cn("pb-12", className)}>
             <div className="space-y-4 py-4">
                 <div className="px-3 py-2">
-                    <div className="flex items-center justify-between lg:justify-start mb-2 px-4"> {/* Ajustado para alinhar o X */}
+                    <div className="flex items-center justify-between lg:justify-start mb-2 px-4"> 
                         <h2 className="text-lg font-semibold tracking-tight">
                             Descubra
                         </h2>
@@ -40,6 +40,12 @@ export function Sidebar({ className, isSidebarOpen, toggleSidebar }: SidebarProp
                             <Link href="/orders" onClick={toggleSidebar}>
                                 <ClipboardList className="mr-2 h-4 w-4" />
                                 Pedidos
+                            </Link>
+                        </Button>
+                        <Button asChild variant="ghost" className="w-full justify-start">
+                            <Link href="/customers" onClick={toggleSidebar}>
+                                <Users className="mr-2 h-4 w-4" />
+                                Clientes
                             </Link>
                         </Button>
                         <Button asChild variant="ghost" className="w-full justify-start">

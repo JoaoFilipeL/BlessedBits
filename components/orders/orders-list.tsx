@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Plus, Minus, RefreshCw, Eye, Trash2, Edit } from "lucide-react" 
+import { Search, Plus, Minus, RefreshCw, Eye, Trash2, Edit } from "lucide-react"
 import {
     Dialog,
     DialogContent,
@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { CustomersList, Customer } from '@/components/customers/customers-list'; 
 
 type OrderStatus = "em análise" | "em produção" | "pronto" | "cancelado"
 
@@ -60,8 +61,9 @@ interface OrderItem {
 
 interface Order {
     id: number;
-    customer_name: string;
-    customer_phone: string;
+    customer_id: string | null; 
+    customer_name: string; 
+    customer_phone: string; 
     address: string | null;
     notes: string | null;
     total_amount: number;
@@ -77,6 +79,7 @@ export function OrdersList() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [products, setProducts] = useState<Product[]>([]); 
     const [combos, setCombos] = useState<ProductCombo[]>([]); 
+    const [customers, setCustomers] = useState<Customer[]>([]); 
     const [searchTerm, setSearchTerm] = useState("");
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [selectedStatus, setSelectedStatus] = useState<OrderStatus | "todos">("todos");
@@ -86,8 +89,7 @@ export function OrdersList() {
 
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState<Order | null>(null);
-    const [editCustomerName, setEditCustomerName] = useState("");
-    const [editCustomerPhone, setEditCustomerPhone] = useState("");
+    const [editCustomerId, setEditCustomerId] = useState<string | null>(null); 
     const [editAddress, setEditAddress] = useState("");
     const [editNotes, setEditNotes] = useState("");
     const [editItems, setEditItems] = useState<OrderItem[]>([]);
@@ -107,8 +109,7 @@ export function OrdersList() {
         return `${year}-${month}-${day}`;
     };
 
-    const [customerName, setCustomerName] = useState("");
-    const [customerPhone, setCustomerPhone] = useState("");
+    const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null); 
     const [address, setAddress] = useState("");
     const [notes, setNotes] = useState("");
     const [items, setItems] = useState<OrderItem[]>([]); 
@@ -124,6 +125,7 @@ export function OrdersList() {
     const [isMapSelectionDialogOpen, setIsMapSelectionDialogOpen] = useState(false);
     const [addressToNavigate, setAddressToNavigate] = useState<string | null>(null);
 
+    const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false); 
 
     const supabase = createClientComponentClient();
 
@@ -166,13 +168,33 @@ export function OrdersList() {
         }
     }, [supabase]);
 
+    const fetchCustomersData = useCallback(async () => {
+        try {
+            const userId = await getUserId();
+            if (!userId) {
+                console.error("Usuário não autenticado para buscar clientes.");
+                return;
+            }
+            const { data, error: fetchError } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('user_id', userId)
+                .order('name', { ascending: true });
+            if (fetchError) throw fetchError;
+            setCustomers(data as Customer[]);
+        } catch (err: any) {
+            console.error("Erro ao buscar clientes:", err);
+            setError(err.message || "Erro ao carregar clientes.");
+        }
+    }, [supabase, getUserId]);
+
     const fetchOrders = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
             const { data: ordersData, error: ordersError } = await supabase
                 .from('orders')
-                .select('*') 
+                .select('*, customers(name, phone)') 
                 .order('created_at', { ascending: false });
 
             if (ordersError) throw ordersError;
@@ -197,10 +219,13 @@ export function OrdersList() {
                         is_combo_item: item.is_combo_item || false, 
                     }));
 
+                const customerData = order.customers as { name: string, phone: string } | null;
+
                 return {
                     id: order.id,
-                    customer_name: order.customer_name,
-                    customer_phone: order.customer_phone,
+                    customer_id: order.customer_id, 
+                    customer_name: customerData?.name || 'Cliente Removido', 
+                    customer_phone: customerData?.phone || 'N/A', 
                     address: order.address,
                     notes: order.notes,
                     total_amount: parseFloat(order.total_amount),
@@ -223,6 +248,7 @@ export function OrdersList() {
 
     useEffect(() => {
         fetchProductsAndCombos(); 
+        fetchCustomersData(); 
         fetchOrders();
 
         const ordersChannel = supabase
@@ -273,14 +299,52 @@ export function OrdersList() {
             )
             .subscribe();
 
+        const customersChannel = supabase 
+            .channel('customers_changes_orders')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'customers' },
+                (payload) => {
+                    console.log('Mudança em clientes para pedidos em tempo real!', payload);
+                    fetchCustomersData();
+                    fetchOrders(); 
+                }
+            )
+            .subscribe();
+
 
         return () => {
             supabase.removeChannel(ordersChannel);
             supabase.removeChannel(orderItemsChannel);
             supabase.removeChannel(stockChannel);
             supabase.removeChannel(combosChannel); 
+            supabase.removeChannel(customersChannel); 
         };
-    }, [supabase, fetchProductsAndCombos, fetchOrders]);
+    }, [supabase, fetchProductsAndCombos, fetchOrders, fetchCustomersData]);
+
+    const handleCustomerSelect = (customerId: string) => {
+        setSelectedCustomerId(customerId);
+        const customer = customers.find(c => c.id === customerId);
+        if (customer) {
+            setAddress(customer.address || "");
+            setNotes(customer.notes || ""); 
+        } else {
+            setAddress("");
+            setNotes("");
+        }
+    };
+
+    const handleEditCustomerSelect = (customerId: string) => {
+        setEditCustomerId(customerId);
+        const customer = customers.find(c => c.id === customerId);
+        if (customer) {
+            setEditAddress(customer.address || "");
+            setEditNotes(customer.notes || ""); 
+        } else {
+            setEditAddress("");
+            setEditNotes("");
+        }
+    };
 
     const filteredOrders = orders.filter(
         (order) =>
@@ -389,27 +453,6 @@ export function OrdersList() {
         return total;
     };
 
-    const formatPhoneNumberUS = (value: string) => {
-        const numericValue = value.replace(/\D/g, "");
-        if (numericValue.length <= 3) {
-            return numericValue;
-        } else if (numericValue.length <= 6) {
-            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3)}`;
-        } else if (numericValue.length <= 10) {
-            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
-        } else {
-            return `(${numericValue.slice(0, 3)}) ${numericValue.slice(3, 6)}-${numericValue.slice(6, 10)}`;
-        }
-    };
-
-
-    const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setCustomerPhone(formatPhoneNumberUS(e.target.value)); 
-    };
-
-    const handleEditPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setEditCustomerPhone(formatPhoneNumberUS(e.target.value));
-    };
 
     const formatItemsForDisplay = (orderItems: OrderItem[]) => {
         return orderItems.map((item) => `${item.quantity}x ${item.product_name}`).join(", ");
@@ -421,8 +464,14 @@ export function OrdersList() {
 
     const addNewOrder = async () => {
         setAddFormError(null); 
-        if (items.length === 0 || !customerName || !customerPhone) {
-            setAddFormError("Por favor, preencha o nome do cliente, telefone e adicione pelo menos um item ao pedido.");
+        if (items.length === 0 || !selectedCustomerId) { 
+            setAddFormError("Por favor, selecione um cliente e adicione pelo menos um item ao pedido.");
+            return;
+        }
+
+        const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+        if (!selectedCustomer) {
+            setAddFormError("Cliente selecionado não encontrado.");
             return;
         }
 
@@ -473,13 +522,14 @@ export function OrdersList() {
             const { data: orderData, error: orderError } = await supabase
                 .from('orders')
                 .insert({
-                    customer_name: customerName,
-                    customer_phone: customerPhone,
+                    customer_id: selectedCustomerId, 
+                    customer_name: selectedCustomer.name, 
+                    customer_phone: selectedCustomer.phone, 
                     address: address || null,
                     notes: notes || null,
                     total_amount: calculateTotal(items, deliveryFee), 
                     status: "pronto", 
-                    delivery_date: deliveryDate,
+                    delivery_date: deliveryDate, 
                     delivery_time: deliveryTime, 
                     delivery_fee: parseFloat(deliveryFee), 
                 })
@@ -540,8 +590,7 @@ export function OrdersList() {
             }
 
 
-            setCustomerName("");
-            setCustomerPhone("");
+            setSelectedCustomerId(null); 
             setAddress("");
             setNotes("");
             setItems([]);
@@ -661,7 +710,7 @@ export function OrdersList() {
                 const { error: insertCancelTransactionError } = await supabase
                     .from('financial_transactions')
                     .insert({
-                        transaction_date: orderDeliveryDate, 
+                        transaction_date: orderDeliveryDate,
                         description: `Cancelamento do Pedido ${formatOrderId(orderId)}`,
                         category: 'venda',
                         amount: -orderTotalAmount, 
@@ -694,8 +743,7 @@ export function OrdersList() {
 
     const openEditDialog = (order: Order) => {
         setEditingOrder(order);
-        setEditCustomerName(order.customer_name);
-        setEditCustomerPhone(order.customer_phone);
+        setEditCustomerId(order.customer_id); 
         setEditAddress(order.address || "");
         setEditNotes(order.notes || "");
         setEditItems(order.items);
@@ -803,8 +851,14 @@ export function OrdersList() {
         setEditFormError(null);
         if (!editingOrder) return;
 
-        if (editItems.length === 0 || !editCustomerName || !editCustomerPhone) {
-            setEditFormError("Por favor, preencha o nome do cliente, telefone e adicione pelo menos um item ao pedido.");
+        if (editItems.length === 0 || !editCustomerId) { 
+            setEditFormError("Por favor, selecione um cliente e adicione pelo menos um item ao pedido.");
+            return;
+        }
+
+        const selectedCustomer = customers.find(c => c.id === editCustomerId);
+        if (!selectedCustomer) {
+            setEditFormError("Cliente selecionado não encontrado.");
             return;
         }
 
@@ -904,8 +958,9 @@ export function OrdersList() {
             const { error: updateOrderError } = await supabase
                 .from('orders')
                 .update({
-                    customer_name: editCustomerName,
-                    customer_phone: editCustomerPhone,
+                    customer_id: editCustomerId, 
+                    customer_name: selectedCustomer.name, 
+                    customer_phone: selectedCustomer.phone, 
                     address: editAddress || null,
                     notes: editNotes || null,
                     total_amount: newTotalAmount,
@@ -1066,6 +1121,23 @@ export function OrdersList() {
         }
     };
 
+    const handleCustomerAdded = (newCustomer: Customer) => {
+        setCustomers(prev => [...prev, newCustomer]); 
+        setSelectedCustomerId(newCustomer.id); 
+        setIsAddCustomerModalOpen(false); 
+    };
+
+    const getCustomerNameById = (customerId: string | null) => {
+        const customer = customers.find(c => c.id === customerId);
+        return customer ? customer.name : 'Cliente Removido';
+    };
+
+    const getCustomerPhoneById = (customerId: string | null) => {
+        const customer = customers.find(c => c.id === customerId);
+        return customer ? customer.phone : 'N/A';
+    };
+
+
     return (
         <div className="space-y-4 p-4 md:p-6 lg:p-8">
             {loading && <div className="text-center text-gray-500">Carregando pedidos...</div>}
@@ -1120,24 +1192,48 @@ export function OrdersList() {
                                     </div>
                                 )}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2 col-span-2"> 
+                                        <Label htmlFor="customerSelect">Cliente</Label>
+                                        <div className="flex gap-2">
+                                            <Select value={selectedCustomerId || ""} onValueChange={handleCustomerSelect}>
+                                                <SelectTrigger id="customerSelect" className="flex-grow">
+                                                    <SelectValue placeholder="Selecione um cliente existente" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {customers.length === 0 ? (
+                                                        <SelectItem value="no-customers" disabled>Nenhum cliente cadastrado</SelectItem>
+                                                    ) : (
+                                                        customers.map(customer => (
+                                                            <SelectItem key={customer.id} value={customer.id}>
+                                                                {customer.name} ({customer.phone})
+                                                            </SelectItem>
+                                                        ))
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                            <Button type="button" variant="outline" onClick={() => setIsAddCustomerModalOpen(true)}>
+                                                <Plus className="h-4 w-4 mr-2" /> Adicionar Cliente
+                                            </Button>
+                                        </div>
+                                    </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="name">Nome do Cliente</Label>
+                                        <Label htmlFor="customerName">Nome do Cliente</Label>
                                         <Input
-                                            id="name"
+                                            id="customerName"
                                             placeholder="Nome completo"
-                                            value={customerName}
-                                            onChange={(e) => setCustomerName(e.target.value)}
-                                            required
+                                            value={getCustomerNameById(selectedCustomerId)} 
+                                            readOnly 
+                                            className="bg-gray-100"
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="phone">Telefone</Label>
+                                        <Label htmlFor="customerPhone">Telefone</Label>
                                         <Input
-                                            id="phone"
-                                            placeholder="(000) 000-0000" 
-                                            value={customerPhone}
-                                            onChange={handlePhoneChange}
-                                            required
+                                            id="customerPhone"
+                                            placeholder="(000) 000-0000"
+                                            value={getCustomerPhoneById(selectedCustomerId)} 
+                                            readOnly 
+                                            className="bg-gray-100"
                                         />
                                     </div>
                                 </div>
@@ -1293,7 +1389,7 @@ export function OrdersList() {
                                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                                     Cancelar
                                 </Button>
-                                <Button onClick={addNewOrder} disabled={items.length === 0 || !customerName || !customerPhone}>
+                                <Button onClick={addNewOrder} disabled={items.length === 0 || !selectedCustomerId}>
                                     Registrar Pedido
                                 </Button>
                             </DialogFooter>
@@ -1338,8 +1434,8 @@ export function OrdersList() {
                             filteredOrders.map((order) => (
                                 <TableRow key={order.id}>
                                     <TableCell className="font-medium">{formatOrderId(order.id)}</TableCell>
-                                    <TableCell>{order.customer_name}</TableCell>
-                                    <TableCell>{order.customer_phone}</TableCell>
+                                    <TableCell>{getCustomerNameById(order.customer_id)}</TableCell> 
+                                    <TableCell>{getCustomerPhoneById(order.customer_id)}</TableCell> 
                                     <TableCell className="max-w-[200px] truncate" title={formatItemsForDisplay(order.items)}>
                                         {formatItemsForDisplay(order.items)}
                                     </TableCell>
@@ -1409,11 +1505,11 @@ export function OrdersList() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label className="text-sm font-medium">Cliente:</Label>
-                                    <p className="text-base">{selectedOrderDetails.customer_name}</p>
+                                    <p className="text-base">{getCustomerNameById(selectedOrderDetails.customer_id)}</p>
                                 </div>
                                 <div className="space-y-2">
                                     <Label className="text-sm font-medium">Telefone:</Label>
-                                    <p className="text-base">{selectedOrderDetails.customer_phone}</p>
+                                    <p className="text-base">{getCustomerPhoneById(selectedOrderDetails.customer_id)}</p> 
                                 </div>
                             </div>
                             <div className="space-y-2">
@@ -1528,25 +1624,48 @@ export function OrdersList() {
                             </div>
                         )}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2 col-span-2">
+                                <Label htmlFor="editCustomerSelect">Cliente</Label>
+                                <div className="flex gap-2">
+                                    <Select value={editCustomerId || ""} onValueChange={handleEditCustomerSelect}>
+                                        <SelectTrigger id="editCustomerSelect" className="flex-grow">
+                                            <SelectValue placeholder="Selecione um cliente existente" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {customers.length === 0 ? (
+                                                <SelectItem value="no-customers" disabled>Nenhum cliente cadastrado</SelectItem>
+                                            ) : (
+                                                customers.map(customer => (
+                                                    <SelectItem key={customer.id} value={customer.id}>
+                                                        {customer.name} ({customer.phone})
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button type="button" variant="outline" onClick={() => setIsAddCustomerModalOpen(true)}>
+                                        <Plus className="h-4 w-4 mr-2" /> Adicionar Cliente
+                                    </Button>
+                                </div>
+                            </div>
                             <div className="space-y-2">
-                                <Label htmlFor="editName">Nome do Cliente</Label>
+                                <Label htmlFor="editCustomerName">Nome do Cliente</Label>
                                 <Input
-                                    id="editName"
+                                    id="editCustomerName"
                                     placeholder="Nome completo"
-                                    value={editCustomerName}
-                                    onChange={(e) => setEditCustomerName(e.target.value)}
-                                    required
+                                    value={getCustomerNameById(editCustomerId)} 
+                                    readOnly
+                                    className="bg-gray-100"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="editPhone">Telefone</Label>
+                                <Label htmlFor="editCustomerPhone">Telefone</Label>
                                 <Input
-                                    id="editPhone"
-                                    type="text" 
+                                    id="editCustomerPhone"
                                     placeholder="(000) 000-0000"
-                                    value={editCustomerPhone}
-                                    onChange={handleEditPhoneChange}
-                                    required
+                                    value={getCustomerPhoneById(editCustomerId)} 
+                                    readOnly
+                                    className="bg-gray-100"
                                 />
                             </div>
                         </div>
@@ -1706,6 +1825,15 @@ export function OrdersList() {
                             Salvar Alterações
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isAddCustomerModalOpen} onOpenChange={setIsAddCustomerModalOpen}>
+                <DialogContent className="max-w-md w-[90%]">
+                    <CustomersList
+                        isModal={true}
+                        onCloseModal={() => setIsAddCustomerModalOpen(false)}
+                        onCustomerAdded={handleCustomerAdded}
+                    />
                 </DialogContent>
             </Dialog>
         </div>
