@@ -170,7 +170,6 @@ export function DashboardStats() {
                         </CardHeader>
                         <CardContent className="p-4 pt-0">
                             <div className="text-3xl font-bold">{ordersToday}</div>
-                            <p className="text-xs text-muted-foreground mt-1">+18% em relação a ontem</p>
                         </CardContent>
                     </Card>
                     <Card className="w-full h-full flex flex-col justify-between">
@@ -180,7 +179,6 @@ export function DashboardStats() {
                         </CardHeader>
                         <CardContent className="p-4 pt-0">
                             <div className="text-3xl font-bold">$ {revenueToday.toFixed(2)}</div>
-                            <p className="text-xs text-muted-foreground mt-1">+12% em relação a ontem</p>
                         </CardContent>
                     </Card>
                     <Card className="w-full h-full flex flex-col justify-between">

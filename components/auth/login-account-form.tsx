@@ -3,28 +3,28 @@
 import * as z from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { useState } from 'react'; // Importar useState para controlar a visibilidade da senha
+import { useState } from 'react'; 
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '../ui/form';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff } from 'lucide-react'; // Importar ícones de olho
+import { Eye, EyeOff } from 'lucide-react'; 
 
 const formSchema = z.object({
     email: z
         .string()
-        .min(1, { message: 'Email é obrigatório' }) // Mensagem para campo vazio
-        .email('Email inválido'), // Mensagem para formato de email inválido
+        .min(1, { message: 'Email é obrigatório' }) 
+        .email('Email inválido'), 
     password: z
         .string()
-        .min(1, { message: 'Senha é obrigatória' }) // Mensagem para campo vazio
+        .min(1, { message: 'Senha é obrigatória' }) 
         .min(6, {
             message: 'Senha deve ter pelo menos 6 caracteres',
         })
         .max(12, {
-            message: 'Senha deve ter no máximo 12 caracteres', // Mensagem para senha muito longa
+            message: 'Senha deve ter no máximo 12 caracteres', 
         }),
 })
 
@@ -39,10 +39,10 @@ export function LoginAccountForm() {
     });
 
     const [showPassword, setShowPassword] = useState(false);
-    const [loginError, setLoginError] = useState<string | null>(null); // Novo estado para a mensagem de erro de login
+    const [loginError, setLoginError] = useState<string | null>(null); 
 
     const onSubmit = async (values: z.infer<typeof formSchema>) => {
-        setLoginError(null); // Limpa erros anteriores
+        setLoginError(null); 
         try {
             const supabase = createClientComponentClient();
             const { email, password } = values;
@@ -53,10 +53,10 @@ export function LoginAccountForm() {
 
             if (error) {
                 console.error('Erro ao fazer login:', error.message);
-                // Mapeia mensagens de erro específicas do Supabase para mensagens amigáveis
+             
                 if (error.message.includes('Invalid login credentials') || error.message.includes('Email not confirmed')) {
                     setLoginError('Credenciais inválidas. Verifique seu e-mail e senha.');
-                } else if (error.message.includes('User not found')) { // Embora 'Invalid login credentials' já cubra isso
+                } else if (error.message.includes('User not found')) { 
                     setLoginError('E-mail não cadastrado.');
                 } else {
                     setLoginError('Ocorreu um erro ao fazer login. Tente novamente.');
@@ -81,7 +81,7 @@ export function LoginAccountForm() {
                     onSubmit={form.handleSubmit(onSubmit)}
                     className='flex flex-col space-y-4 w-full'
                 >
-                    {loginError && ( // Exibe a mensagem de erro se houver
+                    {loginError && ( 
                         <div className="text-red-500 text-sm text-center">
                             {loginError}
                         </div>
